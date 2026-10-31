@@ -10,7 +10,15 @@ router.use(authenticate);
 // Profile & Onboarding
 router.get('/profile', (req, res) => deliveryController.getProfile(req, res));
 router.post('/profile', (req, res) => deliveryController.updateProfile(req, res));
+router.patch('/profile', (req, res) => deliveryController.updateProfile(req, res));
 router.post('/profile/submit', (req, res) => deliveryController.submitProfile(req, res));
+
+// Aliases matching mobile delivery client registration wizard
+router.get('/riders/registration/me', (req, res) => deliveryController.getProfile(req, res));
+router.patch('/riders/registration/me', (req, res) => deliveryController.updateProfile(req, res));
+router.post('/riders/registration/submit', (req, res) => deliveryController.submitProfile(req, res));
+router.get('/riders/registration/status', (req, res) => deliveryController.getProfile(req, res));
+router.post('/riders/documents', (req, res) => deliveryController.updateProfile(req, res));
 
 // Availability & Location
 router.post('/availability', (req, res) => deliveryController.setAvailability(req, res));

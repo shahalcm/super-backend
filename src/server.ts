@@ -18,7 +18,7 @@ async function startServer() {
 
     server.listen(env.PORT, () => {
       logger.info(`========================================================`);
-      logger.info(`🚀 UBS GLOBAL CENTRAL BACKEND INITIALIZED SUCCESSFULLY`);
+      logger.info(`🚀 UBSSUPER ECOSYSTEM CENTRAL BACKEND INITIALIZED SUCCESSFULLY`);
       logger.info(`📡 Port: ${env.PORT} | Environment: ${env.NODE_ENV}`);
       logger.info(`🔗 Base API URL: http://localhost:${env.PORT}/api/v1`);
       logger.info(`🏥 Health Check: http://localhost:${env.PORT}/health`);
@@ -26,7 +26,7 @@ async function startServer() {
       logger.info(`========================================================`);
     });
   } catch (error: any) {
-    logger.error({ err: error.message }, 'Failed to start UBS Central Server');
+    logger.error({ err: error.message }, 'Failed to start UBSSuper Central Server');
     process.exit(1);
   }
 }

@@ -60,7 +60,7 @@ app.use(generalLimiter);
 const healthHandler = (_req: Request, res: Response) => {
   return sendSuccess(res, {
     status: 'healthy',
-    ecosystem: 'UBS Global Central Backend',
+    ecosystem: 'UBSSuper Ecosystem Central Backend',
     version: '1.0.0',
     environment: env.NODE_ENV,
     timestamp: new Date().toISOString(),
@@ -79,8 +79,24 @@ const healthHandler = (_req: Request, res: Response) => {
 app.get('/health', healthHandler);
 app.get('/api/v1/health', healthHandler);
 
-// Central API Routes (Versioned /api/v1)
+// 1. Direct Public Auth Aliases (Must be mounted BEFORE protected routers to avoid auth intercept)
 app.use('/api/v1/auth', authRoutes);
+app.use('/api/auth', authRoutes);
+app.use('/auth', authRoutes);
+
+app.use('/api/v1/delivery/auth', authRoutes);
+app.use('/api/delivery/auth', authRoutes);
+app.use('/api/v1/api/delivery/auth', authRoutes);
+
+app.use('/api/v1/driver/auth', authRoutes);
+app.use('/api/driver/auth', authRoutes);
+app.use('/api/v1/api/driver/auth', authRoutes);
+
+app.use('/api/v1/partner/auth', authRoutes);
+app.use('/api/partner/auth', authRoutes);
+app.use('/api/v1/api/partner/auth', authRoutes);
+
+// 2. Central API Routes (Versioned /api/v1)
 app.use('/api/v1/customers', customerRoutes);
 app.use('/api/v1/drivers', driverRoutes);
 app.use('/api/v1/taxi', taxiRoutes);
@@ -91,27 +107,16 @@ app.use('/api/v1/content', contentRoutes);
 app.use('/api/v1/payments', paymentRoutes);
 app.use('/api/v1/admin', adminRoutes);
 
-// Direct Aliases to support exact existing mobile & admin URL patterns
-// 1. Driver app aliases (calls /api/driver/auth/..., /api/driver/profile, etc.)
-app.use('/api/driver/auth', authRoutes);
+// 3. Direct App Aliases (Version-less and client compatibility mounts)
 app.use('/api/driver', driverRoutes);
-app.use('/api/v1/api/driver/auth', authRoutes);
 app.use('/api/v1/api/driver', driverRoutes);
 
-// 2. Partner app aliases (calls /api/partner/auth/..., /api/partner/grocery/..., etc.)
-app.use('/api/partner/auth', authRoutes);
 app.use('/api/partner', partnerRoutes);
-app.use('/api/v1/api/partner/auth', authRoutes);
 app.use('/api/v1/api/partner', partnerRoutes);
 
-// 3. Delivery app aliases (baseURL includes /delivery or calls /delivery/auth/...)
-app.use('/api/v1/delivery/auth', authRoutes);
-app.use('/api/delivery/auth', authRoutes);
 app.use('/api/delivery', deliveryRoutes);
-app.use('/api/v1/api/delivery/auth', authRoutes);
 app.use('/api/v1/api/delivery', deliveryRoutes);
 
-// 4. Admin panel aliases (calls /api/admin/...)
 app.use('/api/admin', adminRoutes);
 app.use('/api/v1/api/admin', adminRoutes);
 

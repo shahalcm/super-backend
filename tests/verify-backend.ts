@@ -27,7 +27,7 @@ import { adminService } from '../src/modules/admin/admin.service.js';
 import { taxiService } from '../src/modules/taxi/taxi.service.js';
 
 console.log('================================================================');
-console.log('🚀 RUNNING UBS GLOBAL CENTRAL BACKEND 32-SCENARIO TEST SUITE');
+console.log('🚀 RUNNING UBSSUPER CENTRAL BACKEND 32-SCENARIO TEST SUITE');
 console.log('================================================================\n');
 
 async function runTests() {

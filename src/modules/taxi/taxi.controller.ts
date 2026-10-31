@@ -6,7 +6,21 @@ import { sendSuccess, sendError } from '../../utils/response.js';
 export class TaxiController {
   async getEstimates(req: Request, res: Response) {
     try {
-      const { pickup, destination } = req.body;
+      const rawPickup = req.body.pickup || req.body.pickupLocation || req.body.pickupCoordinates;
+      const rawDest = req.body.destination || req.body.destinationLocation || req.body.dropCoordinates || req.body.destinationCoordinates;
+
+      const normalizeCoord = (c: any) => {
+        if (!c) return { latitude: 12.9716, longitude: 77.5946 };
+        if (Array.isArray(c)) return { longitude: c[0], latitude: c[1] };
+        return {
+          latitude: c.latitude ?? c.lat ?? 12.9716,
+          longitude: c.longitude ?? c.lng ?? 77.5946,
+        };
+      };
+
+      const pickup = normalizeCoord(rawPickup);
+      const destination = normalizeCoord(rawDest);
+
       const result = await taxiService.getEstimates(pickup, destination);
       return sendSuccess(res, result, 'Taxi fare estimates calculated');
     } catch (error: any) {

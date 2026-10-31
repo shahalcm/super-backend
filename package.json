@@ -1,7 +1,7 @@
 {
-  "name": "ubs-central-backend",
+  "name": "ubssuper-central-backend",
   "version": "1.0.0",
-  "description": "UBS Global Central Backend powering UBSSuper, UBS Super Taxi, UBS Partner, UBS Delivery, and UBS Admin Panel",
+  "description": "UBSSuper Central Backend powering UBSSuper, UBS Super Taxi, UBS Partner, UBS Delivery, and UBSSuper Admin Panel",
   "main": "dist/server.js",
   "scripts": {
     "dev": "tsx watch src/server.ts",

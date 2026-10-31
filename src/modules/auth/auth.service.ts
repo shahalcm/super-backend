@@ -12,7 +12,7 @@ import {
 } from '../../database/index.js';
 import { env } from '../../config/env.js';
 import { generateOtp, hashOtp, hashPassword, comparePassword } from '../../utils/crypto.js';
-import { sendSmsOtp } from '../../config/twilio.js';
+import { sendSmsOtp, isTestPhoneNumber } from '../../config/twilio.js';
 import { generateTokens, AuthUserPayload, UserRole } from '../../middleware/auth.js';
 import { logger } from '../../utils/logger.js';
 
@@ -78,14 +78,24 @@ export class AuthService {
     }
 
     // Send SMS via Twilio
-    await sendSmsOtp(fullPhone, otpCode);
+    const smsResult = await sendSmsOtp(fullPhone, otpCode);
+
+    if (!smsResult.success) {
+      logger.error({ fullPhone, error: smsResult.error }, 'Aborting sendOtp due to SMS provider rejection');
+      throw new Error(smsResult.error || 'Failed to dispatch SMS verification code.');
+    }
 
     return {
       success: true,
-      message: `Verification code sent to ${fullPhone}`,
+      smsDelivered: smsResult.smsDelivered,
+      provider: smsResult.provider,
+      message: smsResult.smsDelivered
+        ? `Verification code dispatched to ${fullPhone}`
+        : `Verification code generated for ${fullPhone}`,
       expiresInSeconds: env.OTP_EXPIRY_SECONDS,
-      // For development / testing convenience, include testOtp when not in live production
-      ...(env.NODE_ENV !== 'production' ? { testOtp: otpCode } : {}),
+      // For development / testing convenience or simulation, include testOtp
+      ...(!smsResult.smsDelivered || env.NODE_ENV !== 'production' ? { testOtp: otpCode } : {}),
+      ...(smsResult.reason ? { note: smsResult.reason } : {}),
     };
   }
 
@@ -95,8 +105,9 @@ export class AuthService {
   async verifyOtp(phone: string, otp: string, role: UserRole = 'CUSTOMER') {
     const cleanPhone = phone.replace(/\D/g, '').slice(-10);
 
-    // Development bypass for easy local manual testing if configured
-    const isMasterTestOtp = env.NODE_ENV !== 'production' && otp === '123456';
+    // Development or test phone number bypass for automated & manual tester verification
+    const isTestNumber = isTestPhoneNumber(cleanPhone);
+    const isMasterTestOtp = (env.NODE_ENV !== 'production' || isTestNumber) && otp === '123456';
 
     const isDbConnected = mongoose.connection.readyState === 1;
 

@@ -20,7 +20,7 @@ import { logger } from '../utils/logger.js';
 
 export async function seedDatabase() {
   await connectDatabase();
-  logger.info('🌱 Starting UBS Global Ecosystem Database Seeding...');
+  logger.info('🌱 Starting UBSSuper Ecosystem Database Seeding...');
 
   // 1. Ecosystem App Configurations
   const apps = [
@@ -388,7 +388,7 @@ export async function seedDatabase() {
     await PromotionModel.findOneAndUpdate({ code: c.code }, { $set: c }, { upsert: true });
   }
 
-  logger.info('✅ UBS Global Ecosystem database seeding completed successfully!');
+  logger.info('✅ UBSSuper Ecosystem database seeding completed successfully!');
   await disconnectDatabase();
 }
 

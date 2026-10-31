@@ -1,8 +1,8 @@
-# UBS Global Ecosystem – Central Backend Architecture & API Guide
+# UBSSuper Ecosystem – Central Backend Architecture & API Guide
 
 A high-performance, resilient, enterprise-grade Central Backend built with Node.js, Express.js, TypeScript, MongoDB Atlas, and Socket.IO.
 
-This central backend serves as the single source of truth and real-time engine connecting all five applications across the UBS Global ecosystem:
+This central backend serves as the single source of truth and real-time engine connecting all five applications across the UBSSuper ecosystem:
 
 1. **UBSSuper** – Customer Super App (Expo / React Native)
 2. **UBS Super Taxi** – Taxi Driver Partner App (Expo / React Native)
