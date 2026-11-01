@@ -339,10 +339,8 @@ export class OrdersService {
       data.razorpaySignature
     );
 
-    // Enforce signature check in production or if valid credentials are configured
-    const isPlaceholderKey = env.RAZORPAY_KEY_ID === 'rzp_test_placeholder_key_id';
-    if (!isValid && !isPlaceholderKey && env.NODE_ENV === 'production') {
-      throw new Error('Payment signature verification failed. Authentication compromised.');
+    if (!isValid) {
+      throw new Error('Payment signature verification failed. Authentication compromised or invalid signature.');
     }
 
     // Transition Order States
