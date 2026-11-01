@@ -332,11 +332,15 @@ export class OrdersService {
       return { order, message: 'Payment already verified and confirmed.' };
     }
 
+    const rzpOrderId = data.razorpayOrderId || (data as any).razorpay_order_id;
+    const rzpPaymentId = data.razorpayPaymentId || (data as any).razorpay_payment_id;
+    const rzpSignature = data.razorpaySignature || (data as any).razorpay_signature;
+
     // Cryptographic HMAC-SHA256 Signature Verification
     const isValid = verifyRazorpaySignature(
-      data.razorpayOrderId,
-      data.razorpayPaymentId,
-      data.razorpaySignature
+      rzpOrderId,
+      rzpPaymentId,
+      rzpSignature
     );
 
     if (!isValid) {
