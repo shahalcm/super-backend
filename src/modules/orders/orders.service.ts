@@ -55,14 +55,15 @@ export class OrdersService {
     let detectedPartnerId = data.partnerId;
 
     for (const item of data.items) {
-      let authoritativePrice = item.unitPrice;
-      let itemName = item.name;
-      let itemImage = item.imageUrl;
+      const itemId = item.id || (item as any).productId || 'item_' + Math.random().toString(36).substring(7);
+      let authoritativePrice = item.unitPrice ?? (item as any).price ?? 0;
+      let itemName = item.name || 'Grocery Item';
+      let itemImage = item.imageUrl || (item as any).image;
 
       if (isDbConnected && (data.type === 'grocery' || data.type === 'food')) {
         try {
           const product = await GroceryProductModel.findOne({
-            $or: [{ productId: item.id }, { _id: mongoose.isValidObjectId(item.id) ? item.id : null }],
+            $or: [{ productId: itemId }, { _id: mongoose.isValidObjectId(itemId) ? itemId : null }],
           });
 
           if (product) {
@@ -91,7 +92,7 @@ export class OrdersService {
       }
 
       validatedItems.push({
-        id: item.id,
+        id: itemId,
         name: itemName,
         quantity: Math.max(1, Math.round(item.quantity)),
         unitPrice: authoritativePrice,
