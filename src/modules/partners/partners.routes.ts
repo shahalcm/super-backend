@@ -5,6 +5,11 @@ import { authenticate } from '../../middleware/auth.js';
 
 const router = Router();
 
+// Public Catalog Browsing (Guest access allowed)
+router.get('/grocery/products', (req, res) => partnersController.getGroceryProducts(req, res));
+router.get('/grocery/products/:id', (req, res) => partnersController.getGroceryProductById(req, res));
+
+// Authenticated Partner Routes
 router.use(authenticate);
 
 // Registration & Profile
@@ -22,8 +27,7 @@ router.post('/payments/verify', (req, res) => partnersController.verifyFeePaymen
 // Dashboard
 router.get('/dashboard/summary', (req, res) => partnersController.getDashboardSummary(req, res));
 
-// Grocery Management
-router.get('/grocery/products', (req, res) => partnersController.getGroceryProducts(req, res));
+// Grocery Management (Partner SKU modifications)
 router.post('/grocery/products', (req, res) => partnersController.createGroceryProduct(req, res));
 router.put('/grocery/products/:id', (req, res) => partnersController.updateGroceryProduct(req, res));
 router.patch('/grocery/products/:id', (req, res) => partnersController.updateGroceryProduct(req, res));

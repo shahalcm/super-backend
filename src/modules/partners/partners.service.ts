@@ -185,15 +185,28 @@ export class PartnersService {
   }
 
   // --- Grocery SKU & Orders ---
-  async getGroceryProducts(partnerId: string) {
+  async getGroceryProducts(partnerId?: string) {
     if (mongoose.connection.readyState === 1) {
       try {
-        return await GroceryProductModel.find({ partnerId }).sort({ createdAt: -1 });
+        const query: any = partnerId ? { partnerId } : {};
+        return await GroceryProductModel.find(query).sort({ createdAt: -1 });
       } catch {
         // Fallback
       }
     }
     return [];
+  }
+
+  async getGroceryProductById(productId: string) {
+    if (mongoose.connection.readyState === 1) {
+      try {
+        const product = await GroceryProductModel.findOne({ productId });
+        if (product) return product;
+      } catch {
+        // Fallback
+      }
+    }
+    throw new Error(`Product ${productId} not found`);
   }
 
   async createGroceryProduct(partnerId: string, data: any) {

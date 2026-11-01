@@ -61,11 +61,29 @@ export class PartnersController {
   // --- Grocery ---
   async getGroceryProducts(req: Request, res: Response) {
     try {
-      const partnerId = req.user?.partnerId || (await partnersService.getRegistration(req.user!.userId)).partnerId;
+      let partnerId = (req.query.partnerId as string) || (req.user as any)?.partnerId;
+      if (!partnerId && req.user?.userId) {
+        try {
+          const reg = await partnersService.getRegistration(req.user.userId);
+          partnerId = reg?.partnerId;
+        } catch {
+          // Public browsing request
+        }
+      }
       const result = await partnersService.getGroceryProducts(partnerId);
       return sendSuccess(res, result, 'Products retrieved');
     } catch (error: any) {
       return sendError(res, error.message, 400);
+    }
+  }
+
+  async getGroceryProductById(req: Request, res: Response) {
+    try {
+      const { id } = req.params;
+      const result = await partnersService.getGroceryProductById(id);
+      return sendSuccess(res, result, 'Product retrieved');
+    } catch (error: any) {
+      return sendError(res, error.message, 404);
     }
   }
 
