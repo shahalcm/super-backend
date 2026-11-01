@@ -22,6 +22,16 @@ export class OrdersController {
     }
   }
 
+  async retryPayment(req: Request, res: Response) {
+    try {
+      const { id } = req.params;
+      const result = await ordersService.retryPayment(req.user!.userId, id);
+      return sendSuccess(res, result, 'Razorpay retry payment initiated');
+    } catch (error: any) {
+      return sendError(res, error.message, 400);
+    }
+  }
+
   async getMyOrders(req: Request, res: Response) {
     try {
       const result = await ordersService.getMyOrders(req.user!.userId);

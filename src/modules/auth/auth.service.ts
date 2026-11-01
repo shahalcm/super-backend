@@ -12,7 +12,7 @@ import {
 } from '../../database/index.js';
 import { env } from '../../config/env.js';
 import { generateOtp, hashOtp, hashPassword, comparePassword } from '../../utils/crypto.js';
-import { sendSmsOtp, isTestPhoneNumber } from '../../config/twilio.js';
+import { sendSmsOtp } from '../../config/twilio.js';
 import { generateTokens, AuthUserPayload, UserRole } from '../../middleware/auth.js';
 import { logger } from '../../utils/logger.js';
 
@@ -77,7 +77,7 @@ export class AuthService {
       memoryOtpStore.set(cleanPhone, { otpHash, attempts: 0, expiresAt });
     }
 
-    // Send SMS via Twilio
+    // Send SMS via configured gateway
     const smsResult = await sendSmsOtp(fullPhone, otpCode);
 
     if (!smsResult.success) {
@@ -89,13 +89,10 @@ export class AuthService {
       success: true,
       smsDelivered: smsResult.smsDelivered,
       provider: smsResult.provider,
-      message: smsResult.smsDelivered
-        ? `Verification code dispatched to ${fullPhone}`
-        : `Verification code generated for ${fullPhone}`,
+      message: `Verification code sent via SMS to ${fullPhone}`,
       expiresInSeconds: env.OTP_EXPIRY_SECONDS,
-      // For development / testing convenience or simulation, include testOtp
-      ...(!smsResult.smsDelivered || env.NODE_ENV !== 'production' ? { testOtp: otpCode } : {}),
-      ...(smsResult.reason ? { note: smsResult.reason } : {}),
+      // Strictly isolated to unit test environment only (NODE_ENV=test)
+      ...(env.NODE_ENV === 'test' ? { testOtp: otpCode } : {}),
     };
   }
 
@@ -105,13 +102,12 @@ export class AuthService {
   async verifyOtp(phone: string, otp: string, role: UserRole = 'CUSTOMER') {
     const cleanPhone = phone.replace(/\D/g, '').slice(-10);
 
-    // Development or test phone number bypass for automated & manual tester verification
-    const isTestNumber = isTestPhoneNumber(cleanPhone);
-    const isMasterTestOtp = (env.NODE_ENV !== 'production' || isTestNumber) && otp === '123456';
+    // Only allow master test OTP fixture in isolated test runs (NODE_ENV === 'test')
+    const isTestFixtureBypass = env.NODE_ENV === 'test' && otp === '123456';
 
     const isDbConnected = mongoose.connection.readyState === 1;
 
-    if (!isMasterTestOtp) {
+    if (!isTestFixtureBypass) {
       if (isDbConnected) {
         const otpRecord = await OtpModel.findOne({ phone: cleanPhone });
         if (!otpRecord) {

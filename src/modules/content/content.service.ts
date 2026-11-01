@@ -95,6 +95,17 @@ export class ContentService {
     ];
   }
 
+  async getCategories() {
+    return [
+      { id: 'grocery', name: 'Daily Grocery', slug: 'grocery', icon: 'shopping-basket', isActive: true },
+      { id: 'food', name: 'Food Delivery', slug: 'food', icon: 'utensils', isActive: true },
+      { id: 'taxi', name: 'Super Taxi', slug: 'taxi', icon: 'car', isActive: true },
+      { id: 'hotel', name: 'Hotel Bookings', slug: 'hotel', icon: 'hotel', isActive: true },
+      { id: 'clinic', name: 'Doctor & Clinics', slug: 'clinic', icon: 'stethoscope', isActive: true },
+      { id: 'logistics', name: 'Parcel & Logistics', slug: 'logistics', icon: 'truck', isActive: true },
+    ];
+  }
+
   async getGroceryCatalog(category?: string) {
     if (mongoose.connection.readyState === 1) {
       try {

@@ -33,6 +33,15 @@ export class ContentController {
     }
   }
 
+  async getCategories(req: Request, res: Response) {
+    try {
+      const result = await contentService.getCategories();
+      return sendSuccess(res, result, 'Categories retrieved');
+    } catch (error: any) {
+      return sendError(res, error.message, 400);
+    }
+  }
+
   async getGroceryCatalog(req: Request, res: Response) {
     try {
       const category = req.query.category as string;

@@ -6,19 +6,15 @@ import { logger } from '../utils/logger.js';
 let isConnected = false;
 
 export async function connectDatabase(): Promise<typeof mongoose | null> {
-  if (isConnected) {
+  if (isConnected && mongoose.connection.readyState === 1) {
     return mongoose;
   }
-
-  // Prevent Mongoose from hanging for 10,000ms on offline queries
-  mongoose.set('bufferCommands', false);
 
   const options: mongoose.ConnectOptions = {
     maxPoolSize: 25,
     minPoolSize: 5,
-    serverSelectionTimeoutMS: 2000,
+    serverSelectionTimeoutMS: 15000,
     socketTimeoutMS: 45000,
-    family: 4, // IPv4
   };
 
   try {
@@ -27,7 +23,7 @@ export async function connectDatabase(): Promise<typeof mongoose | null> {
     logger.info(`📦 MongoDB Connected successfully to: ${conn.connection.host}/${conn.connection.name}`);
 
     mongoose.connection.on('error', (err) => {
-      logger.error({ err }, 'MongoDB runtime connection error');
+      logger.error({ err: err.message }, 'MongoDB runtime connection error');
     });
 
     mongoose.connection.on('disconnected', () => {
@@ -44,9 +40,9 @@ export async function connectDatabase(): Promise<typeof mongoose | null> {
   } catch (error: any) {
     logger.error({ err: error.message }, '❌ Failed to connect to MongoDB');
     if (env.NODE_ENV === 'production') {
-      process.exit(1);
+      logger.warn('Production MongoDB connection pending. Will retry connection in background.');
+      setTimeout(() => connectDatabase().catch(() => {}), 5000);
     }
-    logger.warn('⚠️ Running in disconnected mode. Database operations will queue or fail until MongoDB is active.');
     return null;
   }
 }

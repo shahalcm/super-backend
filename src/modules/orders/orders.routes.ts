@@ -10,7 +10,9 @@ router.use(authenticate);
 router.post('/checkout', (req, res) => ordersController.checkout(req, res));
 router.post('/verify-payment', (req, res) => ordersController.verifyPayment(req, res));
 router.get('/my-orders', (req, res) => ordersController.getMyOrders(req, res));
+router.get('/customer/my-orders', (req, res) => ordersController.getMyOrders(req, res));
 router.get('/:id', (req, res) => ordersController.getOrderById(req, res));
+router.post('/:id/retry-payment', (req, res) => ordersController.retryPayment(req, res));
 router.post('/:id/cancel', (req, res) => ordersController.cancelOrder(req, res));
 
 export default router;

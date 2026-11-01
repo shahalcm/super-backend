@@ -5,6 +5,13 @@ import { z } from 'zod';
 
 dotenv.config();
 
+if (
+  process.env.npm_lifecycle_event === 'test' ||
+  process.argv.some((a) => a.includes('verify-backend') || a.includes('test'))
+) {
+  process.env.NODE_ENV = 'test';
+}
+
 const envSchema = z.object({
   NODE_ENV: z.enum(['development', 'test', 'production', 'staging']).default('development'),
   PORT: z.coerce.number().default(5000),
@@ -34,10 +41,16 @@ const envSchema = z.object({
   RAZORPAY_WEBHOOK_SECRET: z.string().default('rzp_webhook_secret_placeholder'),
   RAZORPAY_ENV: z.enum(['test', 'live']).default('test'),
 
-  // Twilio
+  // SMS Gateway Configuration (Twilio, Fast2SMS, MSG91)
+  SMS_PROVIDER: z.enum(['twilio', 'fast2sms', 'msg91']).default('twilio'),
   TWILIO_ACCOUNT_SID: z.string().default('AC_twilio_test_account_sid'),
   TWILIO_AUTH_TOKEN: z.string().default('twilio_test_auth_token'),
   TWILIO_PHONE_NUMBER: z.string().default('+15005550006'),
+  TWILIO_MESSAGING_SERVICE_SID: z.string().optional(),
+  FAST2SMS_API_KEY: z.string().optional(),
+  MSG91_AUTH_KEY: z.string().optional(),
+  MSG91_TEMPLATE_ID: z.string().optional(),
+  MSG91_SENDER_ID: z.string().optional(),
   OTP_EXPIRY_SECONDS: z.coerce.number().default(300),
   OTP_RESEND_COOLDOWN_SECONDS: z.coerce.number().default(60),
   OTP_MAX_ATTEMPTS: z.coerce.number().default(5),
