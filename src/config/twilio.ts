@@ -173,13 +173,12 @@ export async function sendSmsOtp(
 
       logger.error({ code: errCode, err: explanation, to: formattedTo }, 'Twilio SMS dispatch failed');
 
-      // Graceful sandbox fallback when gateway is inactive, unverified, or simulation is enabled
-      if (env.NODE_ENV === 'test' || env.ALLOW_OTP_SIMULATION !== false) {
-        logger.warn({ to: formattedTo, reason: explanation }, '⚠️ SMS gateway failure; engaging graceful sandbox OTP fallback');
+      // Only in explicit isolated unit test runs
+      if (env.NODE_ENV === 'test') {
         return {
           success: true,
           smsDelivered: false,
-          messageId: `sim_fallback_${Date.now()}`,
+          messageId: `test_fallback_${Date.now()}`,
           provider: 'simulation',
           reason: explanation,
         };
@@ -195,14 +194,14 @@ export async function sendSmsOtp(
     }
   }
 
-  // 4. Isolated Automated Test Suite Runner or Simulation Mode
-  if (env.NODE_ENV === 'test' || env.ALLOW_OTP_SIMULATION !== false) {
+  // 4. Isolated Automated Test Suite Runner (npm test)
+  if (env.NODE_ENV === 'test') {
     return {
       success: true,
       smsDelivered: false,
       messageId: `test_sim_${Date.now()}`,
       provider: 'simulation',
-      reason: 'Sandbox simulation mode (ALLOW_OTP_SIMULATION=true)',
+      reason: 'Automated test environment (NODE_ENV=test)',
     };
   }
 
@@ -216,6 +215,7 @@ export async function sendSmsOtp(
     error: missingReason,
   };
 }
+
 
 
 

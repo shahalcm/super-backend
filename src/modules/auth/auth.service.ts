@@ -85,17 +85,13 @@ export class AuthService {
       throw new Error(smsResult.error || 'Failed to dispatch SMS verification code.');
     }
 
-    const isSimulation = smsResult.provider === 'simulation';
-
     return {
       success: true,
       smsDelivered: smsResult.smsDelivered,
       provider: smsResult.provider,
-      message: isSimulation
-        ? `Verification code dispatched (Demo/Sandbox mode: ${otpCode})`
-        : `Verification code sent via SMS to ${fullPhone}`,
+      message: `Verification code sent via SMS to ${fullPhone}`,
       expiresInSeconds: env.OTP_EXPIRY_SECONDS,
-      ...(env.NODE_ENV === 'test' || isSimulation ? { testOtp: otpCode } : {}),
+      ...(env.NODE_ENV === 'test' ? { testOtp: otpCode } : {}),
     };
   }
 
@@ -105,13 +101,13 @@ export class AuthService {
   async verifyOtp(phone: string, otp: string, role: UserRole = 'CUSTOMER') {
     const cleanPhone = phone.replace(/\D/g, '').slice(-10);
 
-    // Allow master test OTP fixture (123456) for App Store/Play Store review, demo, and test mode
-    const isTestFixtureBypass = otp === '123456';
-
+    // Only allow master test OTP fixture in isolated test runs (NODE_ENV === 'test')
+    const isTestFixtureBypass = env.NODE_ENV === 'test' && otp === '123456';
 
     const isDbConnected = mongoose.connection.readyState === 1;
 
     if (!isTestFixtureBypass) {
+
       if (isDbConnected) {
         const otpRecord = await OtpModel.findOne({ phone: cleanPhone });
         if (!otpRecord) {

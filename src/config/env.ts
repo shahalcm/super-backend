@@ -54,7 +54,7 @@ const envSchema = z.object({
   OTP_EXPIRY_SECONDS: z.coerce.number().default(300),
   OTP_RESEND_COOLDOWN_SECONDS: z.coerce.number().default(60),
   OTP_MAX_ATTEMPTS: z.coerce.number().default(5),
-  ALLOW_OTP_SIMULATION: z.coerce.boolean().default(true),
+
 
 
   // Cloudinary
