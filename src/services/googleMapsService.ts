@@ -8,7 +8,7 @@ export interface RouteResult {
   durationMinutes: number;
   encodedPolyline?: string;
   points?: Array<{ latitude: number; longitude: number }>;
-  source: 'google_directions' | 'haversine_estimate';
+  source: 'google_routes_api_v2' | 'google_directions' | 'haversine_estimate';
   summary?: string;
 }
 
