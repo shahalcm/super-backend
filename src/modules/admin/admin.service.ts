@@ -181,7 +181,31 @@ export class AdminService {
   }
 
   async updatePartner(partnerId: string, data: any) {
-    return PartnerBusinessModel.findOneAndUpdate({ partnerId }, { $set: data }, { new: true });
+    const { documentId, documentStatus, documentRejectionReason, ...rest } = data;
+    const partner = await PartnerBusinessModel.findOne({ partnerId });
+    if (!partner) return null;
+
+    if (documentId && documentStatus && Array.isArray(partner.documents)) {
+      const doc = partner.documents.find((d: any) => d.id === documentId);
+      if (doc) {
+        doc.status = documentStatus;
+        if (documentStatus === 'rejected') {
+          doc.rejectionReason = documentRejectionReason || 'Document unreadable or invalid';
+        } else {
+          delete doc.rejectionReason;
+        }
+      }
+    }
+
+    Object.assign(partner, rest);
+    if (rest.status === 'approved') {
+      partner.approvedAt = new Date();
+      partner.verificationStatus = 'verified';
+    } else if (rest.status === 'rejected') {
+      partner.verificationStatus = 'rejected';
+    }
+
+    return partner.save();
   }
 
   // 5. Drivers (Taxi)

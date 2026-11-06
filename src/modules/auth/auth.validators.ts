@@ -51,7 +51,34 @@ export const registerSchema = z.object({
     .default('CUSTOMER'),
   vehicleType: z.string().optional(),
   partnerCategory: z.enum(['grocery', 'hotel', 'clinic']).optional(),
+  address: z
+    .object({
+      fullAddress: z.string().optional(),
+      houseNumber: z.string().optional(),
+      street: z.string().optional(),
+      locality: z.string().optional(),
+      city: z.string().optional(),
+      district: z.string().optional(),
+      state: z.string().optional(),
+      pincode: z.string().optional(),
+      country: z.string().optional(),
+    })
+    .optional(),
+  location: z
+    .object({
+      type: z.literal('Point').default('Point'),
+      coordinates: z.tuple([z.number(), z.number()]), // [longitude, latitude]
+    })
+    .optional(),
+  locationSource: z.enum(['gps', 'pincode', 'manual']).optional(),
 });
+
+export const resetPasswordSchema = z.object({
+  phone: z.string().min(8).max(15),
+  otp: z.string().length(6, 'OTP must be exactly 6 digits'),
+  newPassword: z.string().min(6, 'Password must be at least 6 characters'),
+});
+
 
 export const loginPasswordSchema = z.object({
   phoneOrEmail: z.string().min(3),

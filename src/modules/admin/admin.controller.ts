@@ -64,8 +64,9 @@ export class AdminController {
 
   async updatePartner(req: Request, res: Response) {
     try {
-      const { id, ...data } = req.body;
-      const result = await adminService.updatePartner(id, data);
+      const { id, partnerId, ...data } = req.body;
+      const targetId = partnerId || id;
+      const result = await adminService.updatePartner(targetId, data);
       return sendSuccess(res, result, 'Partner updated');
     } catch (error: any) {
       return sendError(res, error.message, 400);

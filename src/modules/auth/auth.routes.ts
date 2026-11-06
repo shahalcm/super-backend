@@ -9,6 +9,7 @@ import {
   verifyOtpSchema,
   registerSchema,
   loginPasswordSchema,
+  resetPasswordSchema,
   refreshTokenSchema,
 } from './auth.validators.js';
 
@@ -31,9 +32,14 @@ router.post('/login', authLimiter, validateBody(loginPasswordSchema), (req, res)
   authController.loginPassword(req, res)
 );
 
+router.post('/reset-password', authLimiter, validateBody(resetPasswordSchema), (req, res) =>
+  authController.resetPassword(req, res)
+);
+
 router.post('/refresh-token', validateBody(refreshTokenSchema), (req, res) =>
   authController.refreshToken(req, res)
 );
+
 
 // Protected endpoints
 router.get('/me', authenticate, (req, res) => authController.getMe(req, res));

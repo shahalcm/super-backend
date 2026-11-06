@@ -14,6 +14,8 @@ import {
   EcosystemAppConfigModel,
   CommissionRuleModel,
   SubscriptionPlanModel,
+  PropertyModel,
+  PropertyListingFeeModel,
 } from './index.js';
 import { hashPassword } from '../utils/crypto.js';
 import { logger } from '../utils/logger.js';
@@ -179,20 +181,74 @@ export async function seedDatabase() {
       ownerEmail: 'finance@freshbasket.com',
       status: 'approved',
       registrationFee: { amount: 999, currency: 'INR', isPaid: true },
+      logo: 'https://images.unsplash.com/photo-1542838132-92c53300491e?auto=format&fit=crop&w=200&q=80',
+      coverImage: 'https://images.unsplash.com/photo-1578916171728-46686eac8d58?auto=format&fit=crop&w=800&q=80',
+      galleryImages: [
+        'https://images.unsplash.com/photo-1578916171728-46686eac8d58?auto=format&fit=crop&w=600&q=80',
+        'https://images.unsplash.com/photo-1542838132-92c53300491e?auto=format&fit=crop&w=600&q=80',
+        'https://images.unsplash.com/photo-1583258292688-d0213dc5a3a8?auto=format&fit=crop&w=600&q=80',
+      ],
+      storeDescription: 'Premier flagship supermarket stocking farm-fresh produce, dairy, bakery, organic staples, and international imports.',
+      cuisines: ['Supermarket', 'Organic Mart', 'Daily Fresh', 'Bakery'],
+      rating: 4.88,
+      totalOrders: 1420,
+      totalRevenue: 382400,
+      deliveryFee: 0,
+      minOrderAmount: 199,
+      estimatedDeliveryMinutes: 20,
+      deliveryAvailable: true,
+      operatingHours: { openTime: '08:00', closeTime: '22:30', isOpen: true },
       address: 'Plot 42, 12th Main Road, Indiranagar',
       city: 'Bengaluru',
       state: 'Karnataka',
       country: 'India',
       postalCode: '560038',
       location: { type: 'Point', coordinates: [77.6387, 12.9784] },
-      rating: 4.88,
-      totalOrders: 1420,
-      totalRevenue: 382400,
     },
     { upsert: true }
   );
 
-  // 5. Grocery Products
+  // Restaurant Partner: Malabar Kitchen
+  await PartnerBusinessModel.findOneAndUpdate(
+    { partnerId: 'r1' },
+    {
+      partnerId: 'r1',
+      userId: 'usr_partner_restaurant_1',
+      businessName: 'Malabar Kitchen',
+      legalName: 'Malabar Culinary Heritage Pvt Ltd',
+      category: 'restaurant',
+      ownerName: 'Chef Mujeeb Rahman',
+      ownerPhone: '9876540006',
+      ownerEmail: 'orders@malabarkitchen.com',
+      status: 'approved',
+      registrationFee: { amount: 999, currency: 'INR', isPaid: true },
+      logo: 'https://images.unsplash.com/photo-1555396273-367ea4eb4db5?auto=format&fit=crop&w=200&q=80',
+      coverImage: 'https://images.unsplash.com/photo-1589302168068-964664d93dc0?auto=format&fit=crop&w=800&q=80',
+      galleryImages: [
+        'https://images.unsplash.com/photo-1589302168068-964664d93dc0?auto=format&fit=crop&w=600&q=80',
+        'https://images.unsplash.com/photo-1517248135467-4c7edcad34c4?auto=format&fit=crop&w=600&q=80',
+      ],
+      storeDescription: 'Legendary Malabar dum biriyani, soft layered parottas, Kozhikodan chicken curry, and fresh seafood delicacies.',
+      cuisines: ['Biriyani', 'Malabar', 'South Indian', 'Kerala Seafood'],
+      rating: 4.82,
+      totalOrders: 3120,
+      totalRevenue: 642000,
+      deliveryFee: 25,
+      minOrderAmount: 199,
+      estimatedDeliveryMinutes: 30,
+      deliveryAvailable: true,
+      operatingHours: { openTime: '11:00', closeTime: '23:00', isOpen: true },
+      address: 'Court Road, Civil Station Junction',
+      city: 'Manjeri',
+      state: 'Kerala',
+      country: 'India',
+      postalCode: '676121',
+      location: { type: 'Point', coordinates: [76.1234, 11.1245] },
+    },
+    { upsert: true }
+  );
+
+  // 5. Grocery Products & Dishes
   const products = [
     {
       productId: 'prod_atta_10k',
@@ -209,6 +265,10 @@ export async function seedDatabase() {
       images: ['https://images.unsplash.com/photo-1574323347407-f5e1ad6d020b?auto=format&fit=crop&w=400&q=80'],
       inStock: true,
       isFeatured: true,
+      isVeg: true,
+      discountPercentage: 11,
+      rating: 4.9,
+      ratingCount: 180,
     },
     {
       productId: 'prod_milk_1l',
@@ -225,6 +285,10 @@ export async function seedDatabase() {
       images: ['https://images.unsplash.com/photo-1550583724-b2692b85b150?auto=format&fit=crop&w=400&q=80'],
       inStock: true,
       isFeatured: true,
+      isVeg: true,
+      discountPercentage: 4,
+      rating: 4.8,
+      ratingCount: 240,
     },
     {
       productId: 'prod_oil_1l',
@@ -241,6 +305,30 @@ export async function seedDatabase() {
       images: ['https://images.unsplash.com/photo-1474979266404-7eaacbcd87c5?auto=format&fit=crop&w=400&q=80'],
       inStock: true,
       isFeatured: false,
+      isVeg: true,
+      discountPercentage: 13,
+      rating: 4.7,
+      ratingCount: 95,
+    },
+    {
+      productId: 'dish_m1',
+      partnerId: 'r1',
+      name: 'Special Malabar Dum Chicken Biriyani',
+      brand: 'Malabar Kitchen',
+      category: 'Biriyani Specials',
+      sku: 'MK-DUM-BIRIYANI',
+      sellingPrice: 240,
+      mrp: 280,
+      stockQuantity: 100,
+      lowStockThreshold: 10,
+      unit: '1 Portion',
+      images: ['https://images.unsplash.com/photo-1589302168068-964664d93dc0?auto=format&fit=crop&w=400&q=80'],
+      inStock: true,
+      isFeatured: true,
+      isVeg: false,
+      discountPercentage: 14,
+      rating: 4.9,
+      ratingCount: 520,
     },
   ];
 
@@ -386,6 +474,145 @@ export async function seedDatabase() {
 
   for (const c of coupons) {
     await PromotionModel.findOneAndUpdate({ code: c.code }, { $set: c }, { upsert: true });
+  }
+
+  // 10. Real Estate Property Listing Fee & Sample Properties
+  await PropertyListingFeeModel.findOneAndUpdate(
+    { feature: 'real_estate_property_listing' },
+    {
+      $set: {
+        feature: 'real_estate_property_listing',
+        amount: 50,
+        currency: 'INR',
+        isEnabled: true,
+        updatedByName: 'Super Admin',
+      },
+      $setOnInsert: {
+        history: [
+          {
+            amount: 50,
+            currency: 'INR',
+            isEnabled: true,
+            changedBy: 'admin_initial_seed',
+            changedByName: 'Super Admin',
+            changedAt: new Date(),
+            reason: 'Default ₹50 dynamic listing fee per property',
+          },
+        ],
+      },
+    },
+    { upsert: true }
+  );
+
+  const sampleProperties = [
+    {
+      propertyId: 'PR-10001',
+      title: '3 BHK Modern Luxury Villa in Manjeri',
+      description: 'Architect-designed luxury villa with modular kitchen, private lawn, solar power, and 2 covered car parks.',
+      propertyType: 'villa',
+      listingType: 'sale',
+      category: 'Residential',
+      price: 8500000,
+      location: 'Calicut Road, Manjeri, Malappuram',
+      address: 'Plot 14, Green Valley Enclave, Calicut Road',
+      city: 'Manjeri',
+      state: 'Kerala',
+      images: [
+        'https://images.unsplash.com/photo-1600596542815-ffad4c1539a9?auto=format&fit=crop&w=800&q=80',
+        'https://images.unsplash.com/photo-1600585154340-be6161a56a0c?auto=format&fit=crop&w=800&q=80',
+      ],
+      bedrooms: 3,
+      bathrooms: 3,
+      area: '2400 sq.ft',
+      amenities: ['Private Garden', 'Solar Power', 'Covered Parking', 'Borewell & KWA Water', '24x7 Security'],
+      contactName: 'Niyas Rahman',
+      contactPhone: '+91 98765 43210',
+      postedBy: 'Verified Builder',
+      userId: 'usr_manjeri_owner_1',
+      userName: 'Niyas Rahman',
+      listingFeeAmount: 50,
+      isPaid: true,
+      paymentId: 'PLP-10001',
+      status: 'approved',
+      approvalStatus: 'approved',
+      featured: true,
+      paidAt: new Date('2026-10-15'),
+      reviewedAt: new Date('2026-10-15'),
+      reviewedBy: 'Super Admin',
+    },
+    {
+      propertyId: 'PR-10002',
+      title: '2 BHK Waterfront Apartment in Kochi',
+      description: 'Spectacular lake-view premium apartment on Marine Drive with balcony sunset views and clubhouse amenities.',
+      propertyType: 'apartment',
+      listingType: 'rent',
+      category: 'Residential',
+      price: 24000,
+      location: 'Marine Drive, Ernakulam, Kochi',
+      address: 'Floor 11, Bayview Towers, Marine Drive',
+      city: 'Kochi',
+      state: 'Kerala',
+      images: [
+        'https://images.unsplash.com/photo-1545324418-cc1a3fa10c00?auto=format&fit=crop&w=800&q=80',
+        'https://images.unsplash.com/photo-1502672260266-1c1ef2d93688?auto=format&fit=crop&w=800&q=80',
+      ],
+      bedrooms: 2,
+      bathrooms: 2,
+      area: '1250 sq.ft',
+      amenities: ['Swimming Pool', 'Gym & Clubhouse', 'High-Speed Elevators', 'Piped Gas', 'Covered Parking'],
+      contactName: 'Anil Kumar',
+      contactPhone: '+91 98460 11223',
+      postedBy: 'Direct Owner',
+      userId: 'usr_kochi_owner_2',
+      userName: 'Anil Kumar',
+      listingFeeAmount: 50,
+      isPaid: true,
+      paymentId: 'PLP-10002',
+      status: 'approved',
+      approvalStatus: 'approved',
+      featured: true,
+      paidAt: new Date('2026-10-20'),
+      reviewedAt: new Date('2026-10-20'),
+      reviewedBy: 'Super Admin',
+    },
+    {
+      propertyId: 'PR-10003',
+      title: '4 BHK Traditional Malabar Manor in Kozhikode',
+      description: 'Heritage architectural estate with teak wood carvings, central courtyard (Nadumuttam), and 50-cent land area.',
+      propertyType: 'house',
+      listingType: 'sale',
+      category: 'Residential',
+      price: 14500000,
+      location: 'Kottuli, Kozhikode',
+      address: 'Manor Estate, Near Kottooli Wetland, Kozhikode',
+      city: 'Kozhikode',
+      state: 'Kerala',
+      images: [
+        'https://images.unsplash.com/photo-1613977257363-707ba9348227?auto=format&fit=crop&w=800&q=80',
+      ],
+      bedrooms: 4,
+      bathrooms: 4,
+      area: '3800 sq.ft',
+      amenities: ['Traditional Courtyard', 'Outhouse', 'Fruit Orchard', 'Well Water', 'Gated Compound'],
+      contactName: 'Faizal Kozhikode',
+      contactPhone: '+91 94471 99887',
+      postedBy: 'Direct Owner',
+      userId: 'usr_calicut_owner_3',
+      userName: 'Faizal Kozhikode',
+      listingFeeAmount: 50,
+      isPaid: true,
+      paymentId: 'PLP-10003',
+      status: 'approved',
+      approvalStatus: 'approved',
+      featured: false,
+      paidAt: new Date('2026-10-28'),
+      reviewedAt: new Date('2026-10-28'),
+      reviewedBy: 'Super Admin',
+    },
+  ];
+
+  for (const p of sampleProperties) {
+    await PropertyModel.findOneAndUpdate({ propertyId: p.propertyId }, { $set: p }, { upsert: true });
   }
 
   logger.info('✅ UBSSuper Ecosystem database seeding completed successfully!');

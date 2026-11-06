@@ -44,6 +44,17 @@ export class AuthController {
     }
   }
 
+  async resetPassword(req: Request, res: Response) {
+    try {
+      const { phone, otp, newPassword } = req.body;
+      const result = await authService.resetPassword(phone, otp, newPassword);
+      return sendSuccess(res, result, result.message);
+    } catch (error: any) {
+      return sendError(res, error.message, 400, 'PASSWORD_RESET_FAILED');
+    }
+  }
+
+
   async refreshToken(req: Request, res: Response) {
     try {
       const { refreshToken } = req.body;

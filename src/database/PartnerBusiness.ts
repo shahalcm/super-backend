@@ -2,7 +2,7 @@
 import { Schema, model, Document } from 'mongoose';
 import { VerificationStatus, ApplicationStatus } from './TaxiDriver.js';
 
-export type PartnerCategory = 'grocery' | 'hotel' | 'clinic';
+export type PartnerCategory = 'grocery' | 'restaurant' | 'hotel' | 'clinic';
 
 export interface IPartnerBusiness extends Document {
   partnerId: string;
@@ -14,8 +14,16 @@ export interface IPartnerBusiness extends Document {
   ownerName: string;
   ownerPhone: string;
   ownerEmail: string;
+  ownerRole?: string;
+  ownerDob?: string;
+  businessType?: string;
+  businessPhone?: string;
+  businessEmail?: string;
+  operatingHoursStr?: string;
+  currentStep?: number;
 
   status: ApplicationStatus;
+  verificationStatus?: VerificationStatus;
   rejectionReason?: string;
   actionRequiredMessage?: string;
 
@@ -30,6 +38,16 @@ export interface IPartnerBusiness extends Document {
     paymentId?: string;
     paidAt?: Date;
   };
+
+  logo?: string;
+  coverImage?: string;
+  galleryImages?: string[];
+  storeDescription?: string;
+  cuisines?: string[];
+  deliveryAvailable?: boolean;
+  deliveryFee?: number;
+  minOrderAmount?: number;
+  estimatedDeliveryMinutes?: number;
 
   address: string;
   city: string;
@@ -50,6 +68,13 @@ export interface IPartnerBusiness extends Document {
   categorySetup: {
     grocery?: {
       storeType: string;
+      deliveryRadiusKm: number;
+      minOrderValue: number;
+    };
+    restaurant?: {
+      cuisineTypes: string[];
+      seatingCapacity?: number;
+      pureVeg: boolean;
       deliveryRadiusKm: number;
       minOrderValue: number;
     };
@@ -102,18 +127,26 @@ const PartnerBusinessSchema = new Schema<IPartnerBusiness>(
   {
     partnerId: { type: String, required: true, unique: true, index: true },
     userId: { type: String, required: true, index: true },
-    businessName: { type: String, required: true, trim: true },
-    legalName: { type: String, required: true, trim: true },
+    businessName: { type: String, default: '', trim: true },
+    legalName: { type: String, default: '', trim: true },
     category: {
       type: String,
-      enum: ['grocery', 'hotel', 'clinic'],
+      enum: ['grocery', 'restaurant', 'hotel', 'clinic'],
       required: true,
+      default: 'grocery',
       index: true,
     },
 
-    ownerName: { type: String, required: true, trim: true },
-    ownerPhone: { type: String, required: true, index: true },
-    ownerEmail: { type: String, required: true, lowercase: true, trim: true },
+    ownerName: { type: String, default: '', trim: true },
+    ownerPhone: { type: String, default: '', index: true },
+    ownerEmail: { type: String, default: '', lowercase: true, trim: true },
+    ownerRole: { type: String, default: '' },
+    ownerDob: { type: String, default: '' },
+    businessType: { type: String, default: '' },
+    businessPhone: { type: String, default: '' },
+    businessEmail: { type: String, default: '' },
+    operatingHoursStr: { type: String, default: '' },
+    currentStep: { type: Number, default: 1 },
 
     status: {
       type: String,
@@ -140,11 +173,21 @@ const PartnerBusinessSchema = new Schema<IPartnerBusiness>(
       paidAt: { type: Date },
     },
 
-    address: { type: String, required: true },
-    city: { type: String, required: true, index: true },
-    state: { type: String, required: true },
+    logo: { type: String, default: '' },
+    coverImage: { type: String, default: '' },
+    galleryImages: { type: [String], default: [] },
+    storeDescription: { type: String, default: '' },
+    cuisines: { type: [String], default: [] },
+    deliveryAvailable: { type: Boolean, default: true },
+    deliveryFee: { type: Number, default: 0 },
+    minOrderAmount: { type: Number, default: 149 },
+    estimatedDeliveryMinutes: { type: Number, default: 30 },
+
+    address: { type: String, default: '' },
+    city: { type: String, default: '', index: true },
+    state: { type: String, default: '' },
     country: { type: String, default: 'India' },
-    postalCode: { type: String, required: true },
+    postalCode: { type: String, default: '' },
     location: {
       type: { type: String, enum: ['Point'], default: 'Point' },
       coordinates: { type: [Number], default: [77.5946, 12.9716] },
@@ -161,6 +204,13 @@ const PartnerBusinessSchema = new Schema<IPartnerBusiness>(
         storeType: { type: String, default: 'Supermarket' },
         deliveryRadiusKm: { type: Number, default: 8 },
         minOrderValue: { type: Number, default: 199 },
+      },
+      restaurant: {
+        cuisineTypes: { type: [String], default: ['Multi-Cuisine'] },
+        seatingCapacity: { type: Number, default: 40 },
+        pureVeg: { type: Boolean, default: false },
+        deliveryRadiusKm: { type: Number, default: 10 },
+        minOrderValue: { type: Number, default: 149 },
       },
       hotel: {
         totalRooms: { type: Number, default: 10 },

@@ -17,6 +17,10 @@ export interface IGroceryProduct extends Document {
   images: string[];
   inStock: boolean;
   isFeatured: boolean;
+  isVeg?: boolean;
+  discountPercentage?: number;
+  rating?: number;
+  ratingCount?: number;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -38,6 +42,10 @@ const GroceryProductSchema = new Schema<IGroceryProduct>(
     images: { type: [String], default: [] },
     inStock: { type: Boolean, default: true, index: true },
     isFeatured: { type: Boolean, default: false },
+    isVeg: { type: Boolean, default: true },
+    discountPercentage: { type: Number, default: 0 },
+    rating: { type: Number, default: 4.8 },
+    ratingCount: { type: Number, default: 120 },
   },
   { timestamps: true }
 );

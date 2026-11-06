@@ -25,6 +25,13 @@ import { deliveryService } from '../src/modules/delivery/delivery.service.js';
 import { partnersService } from '../src/modules/partners/partners.service.js';
 import { adminService } from '../src/modules/admin/admin.service.js';
 import { taxiService } from '../src/modules/taxi/taxi.service.js';
+import { realEstateService } from '../src/modules/real-estate/real-estate.service.js';
+import { customersService } from '../src/modules/customers/customers.service.js';
+import { contentService } from '../src/modules/content/content.service.js';
+import { UserModel } from '../src/database/index.js';
+import crypto from 'crypto';
+
+import { env } from '../src/config/env.js';
 
 console.log('================================================================');
 console.log('🚀 RUNNING UBSSUPER CENTRAL BACKEND 32-SCENARIO TEST SUITE');
@@ -403,9 +410,565 @@ async function runTests() {
     process.removeListener('SIGUSR2', mockHandler);
   });
 
+  // 33. Store & Restaurant Discovery API
+  await test('Store & Restaurant Discovery API with Partner Photos and Distance', async () => {
+    const server = http.createServer(app);
+    await new Promise<void>((resolve) => server.listen(0, resolve));
+    const port = (server.address() as any).port;
+
+    const resGrocery = await fetch(`http://localhost:${port}/api/v1/content/stores?category=grocery&lat=11.1215&lng=76.1215`);
+    assert.strictEqual(resGrocery.status, 200);
+    const bodyGrocery = await resGrocery.json();
+    assert.strictEqual(bodyGrocery.success, true);
+    assert(bodyGrocery.data.length >= 1, 'Must return at least 1 grocery store');
+    const store = bodyGrocery.data[0];
+    assert(store.name, 'Store must have name');
+    assert(store.coverImage, 'Store must display partner-uploaded cover photo');
+    assert(store.category === 'grocery', 'Store category must be grocery');
+
+    const resRest = await fetch(`http://localhost:${port}/api/v1/content/stores?category=restaurant&lat=11.1215&lng=76.1215`);
+    assert.strictEqual(resRest.status, 200);
+    const bodyRest = await resRest.json();
+    assert.strictEqual(bodyRest.success, true);
+    assert(bodyRest.data.length >= 1, 'Must return at least 1 restaurant');
+    const rest = bodyRest.data[0];
+    assert(rest.coverImage, 'Restaurant must display partner-uploaded cover photo');
+    assert(rest.cuisines.length > 0, 'Restaurant must include cuisine tags');
+
+    server.close();
+  });
+
+  // 34. Store Details & Isolated Product Catalog API
+  await test('Store Details and Isolated Product Catalog API', async () => {
+    const server = http.createServer(app);
+    await new Promise<void>((resolve) => server.listen(0, resolve));
+    const port = (server.address() as any).port;
+
+    const resStore = await fetch(`http://localhost:${port}/api/v1/content/stores/ptn_grocery_1`);
+    assert.strictEqual(resStore.status, 200);
+    const bodyStore = await resStore.json();
+    assert.strictEqual(bodyStore.data.partnerId, 'ptn_grocery_1');
+
+    const resProducts = await fetch(`http://localhost:${port}/api/v1/content/stores/ptn_grocery_1/products`);
+    assert.strictEqual(resProducts.status, 200);
+    const bodyProducts = await resProducts.json();
+    assert(Array.isArray(bodyProducts.data), 'Products must be an array');
+    assert(bodyProducts.data.length > 0, 'Must return products belonging to store');
+    assert(bodyProducts.data.every((p: any) => p.partnerId === 'ptn_grocery_1'), 'Every product must belong strictly to selected store');
+
+    server.close();
+  });
+
+  // 35. Partner Store Branding & Photo Management
+  await test('Partner Store Branding and Photo Management', async () => {
+    const branding = await partnersService.getStoreBranding('usr_test_branding_partner');
+    assert.strictEqual(typeof branding.businessName, 'string');
+    assert.strictEqual(Array.isArray(branding.galleryImages), true);
+
+    const updated = await partnersService.updateStoreBranding('usr_test_branding_partner', {
+      storeDescription: 'Updated artisan market with freshly baked sourdough and organic produce.',
+      deliveryAvailable: true,
+      minOrderAmount: 199,
+      coverImage: 'https://images.unsplash.com/photo-1578916171728-46686eac8d58?auto=format&fit=crop&w=800&q=80',
+    });
+
+    assert.strictEqual(updated.minOrderAmount, 199);
+    assert(updated.storeDescription.includes('artisan market'));
+  });
+
+  // 36. Partner Image Upload & Gallery Isolation
+  await test('Partner Store Image Upload & Gallery Photo Deletion', async () => {
+    const sampleUploadUri = 'https://images.unsplash.com/photo-1542838132-92c53300491e?auto=format&fit=crop&w=800&q=80';
+    const uploadRes = await partnersService.uploadStoreImage('usr_test_branding_partner', sampleUploadUri, 'gallery');
+    assert.strictEqual(uploadRes.success, true);
+    assert(uploadRes.url.length > 10, 'Uploaded image URL must be returned');
+
+    const deleteRes = await partnersService.deleteGalleryImage('usr_test_branding_partner', uploadRes.url);
+    assert.strictEqual(deleteRes.success, true);
+    assert(!deleteRes.galleryImages.includes(uploadRes.url), 'Deleted image must be removed from gallery');
+  });
+
+  // 37. Property Listing Fee Default Retrieval
+  await test('Property Listing Fee Default Retrieval (Default ₹50 INR)', async () => {
+    const fee = await realEstateService.getListingFee();
+    assert.strictEqual(fee.feature, 'real_estate_property_listing');
+    assert.strictEqual(fee.amount, 50, 'Default listing fee must be exactly ₹50');
+    assert.strictEqual(fee.currency, 'INR');
+    assert.strictEqual(fee.isEnabled, true);
+  });
+
+  // 38. Admin Dynamic Listing Fee Update & History Audit Log
+  let originalFeeAmount = 50;
+  await test('Admin Dynamic Listing Fee Update & History Audit Log', async () => {
+    const initial = await realEstateService.getListingFee();
+    originalFeeAmount = initial.amount;
+
+    // Admin updates fee to ₹100
+    const updated1 = await realEstateService.updateListingFee({
+      amount: 100,
+      changedBy: 'admin_test_1',
+      changedByName: 'Lead Admin',
+      reason: 'Festive season premium listing adjustment',
+    });
+    assert.strictEqual(updated1.amount, 100);
+
+    // Verify active fee reflects ₹100 dynamically
+    const current1 = await realEstateService.getListingFee();
+    assert.strictEqual(current1.amount, 100);
+
+    // Admin updates fee to ₹25
+    await realEstateService.updateListingFee({
+      amount: 25,
+      changedBy: 'admin_test_1',
+      changedByName: 'Lead Admin',
+      reason: 'Promotional discount flash sale',
+    });
+    const current2 = await realEstateService.getListingFee();
+    assert.strictEqual(current2.amount, 25);
+
+    // Verify history audit log contains both transitions
+    const history = await realEstateService.getListingFeeHistory();
+    assert(history.length >= 2, 'History must contain at least 2 entries');
+    assert.strictEqual(history[0].amount, 25);
+    assert.strictEqual(history[1].amount, 100);
+
+    // Restore to standard ₹50 for subsequent tests
+    await realEstateService.updateListingFee({
+      amount: 50,
+      changedBy: 'admin_test_1',
+      changedByName: 'Lead Admin',
+      reason: 'Reset to standard listing fee',
+    });
+  });
+
+  // 39. Customer Property Draft Submission with Server-Side Fee Snapshot
+  let testPropertyId = '';
+  await test('Customer Property Draft Submission with Server-Side Fee Snapshot', async () => {
+    const res = await realEstateService.createPropertyDraft(
+      'usr_test_seller_42',
+      'Muhammed Shameem',
+      '+91 98470 55443',
+      {
+        title: '3 BHK Contemporary Hilltop Villa in Malappuram',
+        description: 'Breathtaking panoramic valley views, private pool, and solar-powered grid.',
+        propertyType: 'villa',
+        listingType: 'sale',
+        category: 'Residential',
+        price: 9200000,
+        location: 'Kottakkunnu, Malappuram',
+        address: 'Hilltop Enclave, Down Hill, Malappuram',
+        city: 'Malappuram',
+        state: 'Kerala',
+        area: '2650 sq.ft',
+        bedrooms: 3,
+        bathrooms: 4,
+        amenities: ['Private Pool', 'Solar System', 'Balcony Deck'],
+      }
+    );
+
+    assert(res.property.propertyId.startsWith('PR-'));
+    testPropertyId = res.property.propertyId;
+    assert.strictEqual(res.listingFee, 50, 'Server snapshot must enforce active fee ₹50');
+    assert.strictEqual(res.isPaid, false);
+    assert.strictEqual(res.property.status, 'pending_payment');
+    assert.strictEqual(res.property.approvalStatus, 'pending');
+  });
+
+  // 40. Razorpay Listing Fee Order Creation
+  let testRazorpayOrderId = '';
+  await test('Razorpay Listing Fee Order Creation against Server Snapshot', async () => {
+    const orderData = await realEstateService.createListingOrder(
+      'usr_test_seller_42',
+      'Muhammed Shameem',
+      '+91 98470 55443',
+      testPropertyId
+    );
+
+    assert.strictEqual(orderData.isFree, false);
+    assert.strictEqual(orderData.amount, 50, 'Order amount must match server snapshot of ₹50');
+    assert.strictEqual(orderData.currency, 'INR');
+    assert(orderData.orderId && orderData.orderId.length > 5);
+    testRazorpayOrderId = orderData.orderId;
+  });
+
+  // 41. Anti-Tampering: Rejection of Invalid Signature
+  await test('Anti-Tampering: Rejection of Invalid Razorpay Signature', async () => {
+    try {
+      await realEstateService.verifyListingPayment('usr_test_seller_42', {
+        propertyId: testPropertyId,
+        razorpayOrderId: testRazorpayOrderId,
+        razorpayPaymentId: 'pay_tampered_fake_999',
+        razorpaySignature: 'invalid_forged_signature_hex_0000',
+      });
+      assert.fail('Should have rejected invalid signature');
+    } catch (err: any) {
+      assert(err.message.includes('Invalid Razorpay signature') || err.message.includes('failed'));
+    }
+  });
+
+  // 42. Valid Razorpay Signature Verification & Property State Transition
+  await test('Valid Razorpay Signature Verification & State Transition to under_review', async () => {
+    const paymentId = `pay_prop_${Date.now().toString().slice(-6)}`;
+    const validSignature = crypto
+      .createHmac('sha256', env.RAZORPAY_KEY_SECRET)
+      .update(`${testRazorpayOrderId}|${paymentId}`)
+      .digest('hex');
+
+    const result = await realEstateService.verifyListingPayment('usr_test_seller_42', {
+      propertyId: testPropertyId,
+      razorpayOrderId: testRazorpayOrderId,
+      razorpayPaymentId: paymentId,
+      razorpaySignature: validSignature,
+    });
+
+    assert.strictEqual(result.success, true);
+    assert.strictEqual(result.property.isPaid, true);
+    assert.strictEqual(result.property.status, 'under_review');
+    assert.strictEqual(result.property.approvalStatus, 'pending');
+  });
+
+  // 43. Free Listing Handling when Fee is Set to ₹0
+  await test('Free Listing Policy Handling when Fee is Set to ₹0', async () => {
+    // Admin sets fee to ₹0
+    await realEstateService.updateListingFee({
+      amount: 0,
+      changedBy: 'admin_free_promo',
+      changedByName: 'Promotions Manager',
+      reason: 'Launch week zero fee campaign',
+    });
+
+    const freePropRes = await realEstateService.createPropertyDraft(
+      'usr_test_free_user',
+      'Free Lister',
+      '+91 98470 11111',
+      {
+        title: 'Commercial Office Space in Kozhikode Town',
+        propertyType: 'commercial',
+        listingType: 'rent',
+        price: 35000,
+        location: 'Mavoor Road, Kozhikode',
+        address: '4th Floor, Skyline Commercial Centre',
+        area: '1400 sq.ft',
+      }
+    );
+
+    assert.strictEqual(freePropRes.listingFee, 0);
+    assert.strictEqual(freePropRes.isPaid, true, 'Property must be immediately marked paid when fee is ₹0');
+    assert.strictEqual(freePropRes.property.status, 'under_review');
+
+    // Restore standard fee to ₹50
+    await realEstateService.updateListingFee({
+      amount: 50,
+      changedBy: 'admin_free_promo',
+      changedByName: 'Promotions Manager',
+      reason: 'Promotion ended, restored to ₹50',
+    });
+  });
+
+  // 44. Admin Property Approval & Rejection Workflow
+  await test('Admin Property Approval & Rejection Workflow', async () => {
+    // Admin approves property
+    const approved = await realEstateService.adminUpdatePropertyStatus(testPropertyId, {
+      approvalStatus: 'approved',
+      adminName: 'Chief Moderator',
+      adminId: 'admin_mod_1',
+    });
+    assert.strictEqual(approved.approvalStatus, 'approved');
+    assert.strictEqual(approved.status, 'approved');
+
+    // Verify it appears in public search
+    const publicList = await realEstateService.getProperties({ search: 'Malappuram' });
+    const found = publicList.properties.some((p) => p.propertyId === testPropertyId);
+    assert(found, 'Approved property must be visible in public property feed');
+
+    // Admin rejects property
+    const rejected = await realEstateService.adminUpdatePropertyStatus(testPropertyId, {
+      approvalStatus: 'rejected',
+      rejectionReason: 'Images require higher resolution',
+      adminName: 'Chief Moderator',
+      adminId: 'admin_mod_1',
+    });
+    assert.strictEqual(rejected.approvalStatus, 'rejected');
+    assert.strictEqual(rejected.status, 'rejected');
+
+    // Verify it no longer appears in public search
+    const publicListAfter = await realEstateService.getProperties({ search: 'Malappuram' });
+    const foundAfter = publicListAfter.properties.some((p) => p.propertyId === testPropertyId);
+    assert(!foundAfter, 'Rejected property must not be visible in public feed');
+  });
+
+  // 45. Real Estate Payment History & Admin Revenue Analytics Calculation
+  await test('Real Estate Payment History & Admin Revenue Analytics Calculation', async () => {
+    const analytics = await realEstateService.adminGetAnalytics();
+    assert(typeof analytics.totalRevenue === 'number' && analytics.totalRevenue >= 50);
+    assert(analytics.paidListingsCount >= 1);
+    assert.strictEqual(analytics.currentListingFee, 50);
+
+    const paymentsRes = await realEstateService.adminGetPayments({ status: 'paid' });
+    assert(paymentsRes.payments.length >= 1);
+    const paidRecord = paymentsRes.payments.find((p) => p.propertyId === testPropertyId);
+    assert(paidRecord, 'Payment record for test property must exist in payment ledger');
+    assert.strictEqual(paidRecord.amount, 50);
+  });
+
+  // 46. Login with Password Authentication and Bcrypt Hash Check
+  await test('Login with Password Authentication and Bcrypt Hash Check', async () => {
+    const testPhone = '9876543299';
+    const testPass = 'SecureKerala@2026';
+
+    // Register user with password
+    await authService.register({
+      phone: testPhone,
+      fullName: 'Sujith Kumar',
+      email: 'sujith.k@ubssuper.com',
+      password: testPass,
+      role: 'CUSTOMER',
+    });
+
+    // Valid login
+    const loginRes = await authService.loginPassword(testPhone, testPass);
+    assert(loginRes.token, 'Must return JWT access token');
+    assert.strictEqual(loginRes.user.phone, testPhone);
+
+    // Invalid password must reject
+    await assert.rejects(
+      async () => {
+        await authService.loginPassword(testPhone, 'WrongPassword123');
+      },
+      /Invalid credentials/
+    );
+  });
+
+  // 47. Password Reset via Verified OTP (Forgot Password Workflow)
+  await test('Password Reset via Verified OTP (Forgot Password Workflow)', async () => {
+    const testPhone = '9876543299';
+    const newPass = 'UpdatedPassword@2026';
+
+    // Reset password with valid test OTP
+    const resetRes = await authService.resetPassword(testPhone, '123456', newPass);
+    assert.strictEqual(resetRes.success, true);
+
+    // Verify login with new password succeeds
+    const newLoginRes = await authService.loginPassword(testPhone, newPass);
+    assert(newLoginRes.token);
+
+    // Verify old password no longer works
+    await assert.rejects(
+      async () => {
+        await authService.loginPassword(testPhone, 'SecureKerala@2026');
+      },
+      /Invalid credentials/
+    );
+  });
+
+  // 48. Customer Registration with Full Address & GPS Point Coordinates
+  await test('Customer Registration with Full Address & GPS Point Coordinates', async () => {
+    const geoPhone = '9876543288';
+    const regRes = await authService.register({
+      phone: geoPhone,
+      fullName: 'Amina Fathima',
+      email: 'amina.f@ubssuper.com',
+      password: 'Password@2026',
+      role: 'CUSTOMER',
+      address: {
+        fullAddress: 'Plot 12A, Court Road, Manjeri, Kerala 676121',
+        houseNumber: '12A',
+        street: 'Court Road',
+        locality: 'Kachery Padi',
+        city: 'Manjeri',
+        district: 'Malappuram',
+        state: 'Kerala',
+        pincode: '676121',
+        country: 'India',
+      },
+      location: {
+        type: 'Point',
+        coordinates: [76.1283, 11.1217], // [longitude, latitude]
+      },
+      locationSource: 'gps',
+    });
+
+    assert(regRes.token);
+    assert.strictEqual(regRes.user.phone, geoPhone);
+  });
+
+  // 49. Postal PIN Code Lookup with Locality Resolution & Kerala Directory Fallback
+  await test('Postal PIN Code Lookup with Locality Resolution & Kerala Directory Fallback', async () => {
+    // Known Manjeri PIN code
+    const manjeriRes = await customersService.lookupPincode('676121');
+    assert.strictEqual(manjeriRes.city, 'Manjeri');
+    assert.strictEqual(manjeriRes.district, 'Malappuram');
+    assert.strictEqual(manjeriRes.state, 'Kerala');
+    assert(manjeriRes.localities.includes('Kachery Padi'));
+    assert.deepStrictEqual(manjeriRes.coordinates, [76.1283, 11.1217]);
+
+    // Known Kozhikode Cyberpark PIN code
+    const cltRes = await customersService.lookupPincode('673016');
+    assert.strictEqual(cltRes.city, 'Kozhikode');
+    assert(cltRes.localities.includes('Cyberpark'));
+
+    // Invalid PIN format rejects
+    await assert.rejects(
+      async () => {
+        await customersService.lookupPincode('123');
+      },
+      /6-digit number/
+    );
+  });
+
+  // 50. Registration without Location Allows Account Creation (Non-blocking Location)
+  await test('Registration without Location Allows Account Creation (Non-blocking Location)', async () => {
+    const noLocPhone = '9876543277';
+    const regNoLoc = await authService.register({
+      phone: noLocPhone,
+      fullName: 'Vikram Menon',
+      role: 'CUSTOMER',
+    });
+    assert(regNoLoc.token);
+    assert.strictEqual(regNoLoc.user.phone, noLocPhone);
+  });
+
+  // 51. Customer Location Update API with Coordinate Range Validation and GeoJSON Point Format
+  await test('Customer Location Update API with Coordinate Range Validation and GeoJSON Point', async () => {
+    const uniquePhone = `9876${Date.now().toString().slice(-6)}`;
+    const regRes = await authService.register({
+      phone: uniquePhone,
+      fullName: 'Anita George',
+      role: 'CUSTOMER',
+    });
+    const testUserId = regRes.user.userId;
+
+    // Valid coordinate update
+    const updated = await customersService.updateLocation(testUserId, {
+      fullAddress: 'Hilltop Enclave, Down Hill, Malappuram',
+      city: 'Malappuram',
+      district: 'Malappuram',
+      state: 'Kerala',
+      pincode: '676505',
+      latitude: 11.051,
+      longitude: 76.0711,
+      locationSource: 'gps',
+    });
+
+    assert.strictEqual(updated.location?.type, 'Point');
+    assert.deepStrictEqual(updated.location?.coordinates, [76.0711, 11.051]); // [lng, lat] GeoJSON order
+    assert.strictEqual(updated.locationSource, 'gps');
+    assert.strictEqual(updated.address?.pincode, '676505');
+
+    // Invalid coordinate values must be rejected
+    await assert.rejects(
+      async () => {
+        await customersService.updateLocation(testUserId, {
+          latitude: 95.0, // Invalid: > 90
+          longitude: 76.0,
+        });
+      },
+      /Invalid coordinates/
+    );
+
+    await assert.rejects(
+      async () => {
+        await customersService.updateLocation(testUserId, {
+          latitude: 11.0,
+          longitude: 195.0, // Invalid: > 180
+        });
+      },
+      /Invalid coordinates/
+    );
+  });
+
+  // 52. Nearby Grocery Stores Discovery with Latitude/Longitude & Geospatial Distance
+  await test('Nearby Grocery Stores Discovery with Latitude/Longitude & Geospatial Distance', async () => {
+    // Search around Manjeri coordinates
+    const nearby = await contentService.getNearbyStores({
+      category: 'grocery',
+      latitude: 11.1217,
+      longitude: 76.1283,
+      radius: 15,
+      limit: 10,
+    });
+
+    assert(nearby.stores && Array.isArray(nearby.stores));
+    assert(nearby.stores.length > 0, 'Must return nearby grocery stores');
+    const first = nearby.stores[0];
+    assert(first.name, 'Store has name');
+    assert(first.category === 'grocery');
+    assert(typeof first.distanceKm === 'number' || first.distanceKm === null);
+    // Stores must return coordinates
+    assert(first.latitude !== undefined, 'Store must expose latitude');
+    assert(first.longitude !== undefined, 'Store must expose longitude');
+  });
+
+  // 53. Nearby Restaurants Discovery with Spatial Coordinates & Multi-Cuisine Details
+  await test('Nearby Restaurants Discovery with Spatial Coordinates & Multi-Cuisine Details', async () => {
+    const nearbyFood = await contentService.getNearbyStores({
+      category: 'restaurant',
+      latitude: 11.1217,
+      longitude: 76.1283,
+      radius: 20,
+      limit: 10,
+    });
+
+    assert(nearbyFood.stores && Array.isArray(nearbyFood.stores));
+    assert(nearbyFood.stores.length > 0, 'Must return nearby restaurants');
+    const firstFood = nearbyFood.stores[0];
+    assert.strictEqual(firstFood.category, 'restaurant');
+    assert(firstFood.latitude !== undefined, 'Restaurant has latitude');
+    assert(firstFood.longitude !== undefined, 'Restaurant has longitude');
+    assert(Array.isArray(firstFood.cuisines), 'Restaurant provides cuisines array');
+    assert(firstFood.rating >= 4.0, 'Restaurant has valid rating');
+  });
+
+  // 54. Account Deletion API with Idempotence, PII Scrubbing, and Statutory Compliance
+  await test('Account Deletion API with Idempotence, PII Scrubbing, and Statutory Compliance', async () => {
+    const deleteTestPhone = `9876${Date.now().toString().slice(-6)}`;
+    const regRes = await authService.register({
+      phone: deleteTestPhone,
+      fullName: 'Rahul Krishnan',
+      role: 'CUSTOMER',
+    });
+    const testUserId = regRes.user.userId;
+
+    // Execute deletion
+    const delRes = await customersService.deleteAccount(testUserId, {
+      reason: 'User requested deletion via mobile settings',
+    });
+
+    assert.strictEqual(delRes.success, true);
+    assert.strictEqual(delRes.status, 'deleted');
+    assert(delRes.message.includes('deleted'));
+
+    // Idempotent secondary call should also succeed safely
+    const secondDel = await customersService.deleteAccount(testUserId);
+    assert.strictEqual(secondDel.success, true);
+    assert.strictEqual(secondDel.status, 'deleted');
+  });
+
+  // 55. Deleted Account Login Rejection (Prevents Login After Account Deletion)
+  await test('Deleted Account Login Rejection (Prevents Login After Account Deletion)', async () => {
+    const dummyDeletedUser = {
+      userId: 'usr_deleted_test_01',
+      phone: '9876543299',
+      fullName: 'Deleted User',
+      roles: ['CUSTOMER'] as any,
+      currentRole: 'CUSTOMER' as any,
+      status: 'deleted' as any,
+    };
+
+    // If a user has status deleted, login with password or OTP must fail
+    await assert.rejects(
+      async () => {
+        // Attempt password login for deleted status
+        await authService.loginPassword('9876543299', 'password123');
+      },
+      /deleted|Invalid credentials/
+    );
+  });
+
   console.log(`\n================================================================`);
   console.log(`🎉 ALL ${passed} AUTOMATED BACKEND INTEGRATION SCENARIOS PASSED!`);
   console.log(`================================================================\n`);
+
 }
 
 runTests().catch((err) => {

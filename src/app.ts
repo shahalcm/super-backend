@@ -20,6 +20,10 @@ import orderRoutes from './modules/orders/orders.routes.js';
 import contentRoutes from './modules/content/content.routes.js';
 import paymentRoutes from './modules/payments/payments.routes.js';
 import adminRoutes from './modules/admin/admin.routes.js';
+import realEstateRoutes from './modules/real-estate/real-estate.routes.js';
+import { authenticate } from './middleware/auth.js';
+import { contentController } from './modules/content/content.controller.js';
+import { customersController } from './modules/customers/customers.controller.js';
 
 const app = express();
 
@@ -98,14 +102,41 @@ app.use('/api/v1/api/partner/auth', authRoutes);
 
 // 2. Central API Routes (Versioned /api/v1)
 app.use('/api/v1/customers', customerRoutes);
+app.use('/api/customers', customerRoutes);
+app.use('/customers', customerRoutes);
+app.use('/api/v1/location', customerRoutes);
+app.use('/api/location', customerRoutes);
+app.use('/location', customerRoutes);
 app.use('/api/v1/drivers', driverRoutes);
 app.use('/api/v1/taxi', taxiRoutes);
 app.use('/api/v1/delivery', deliveryRoutes);
 app.use('/api/v1/partners', partnerRoutes);
 app.use('/api/v1/orders', orderRoutes);
 app.use('/api/v1/content', contentRoutes);
+app.use('/api/content', contentRoutes);
+app.use('/content', contentRoutes);
+
+// Direct Location & Nearby Endpoints (Supports /api and /api/v1)
+app.put('/api/v1/users/location', authenticate, (req, res) => customersController.updateLocation(req, res));
+app.put('/api/users/location', authenticate, (req, res) => customersController.updateLocation(req, res));
+app.delete('/api/v1/users/account', authenticate, (req, res) => customersController.deleteAccount(req, res));
+app.delete('/api/users/account', authenticate, (req, res) => customersController.deleteAccount(req, res));
+app.delete('/api/v1/delivery/account', authenticate, (req, res) => customersController.deleteAccount(req, res));
+app.delete('/api/delivery/account', authenticate, (req, res) => customersController.deleteAccount(req, res));
+app.use('/api/users', customerRoutes);
+app.use('/api/v1/users', customerRoutes);
+
+app.get('/api/v1/stores/nearby', (req, res) => contentController.getNearbyStores(req, res));
+app.get('/api/stores/nearby', (req, res) => contentController.getNearbyStores(req, res));
+app.get('/api/v1/restaurants/nearby', (req, res) => contentController.getNearbyRestaurants(req, res));
+app.get('/api/restaurants/nearby', (req, res) => contentController.getNearbyRestaurants(req, res));
 app.use('/api/v1/payments', paymentRoutes);
 app.use('/api/v1/admin', adminRoutes);
+app.use('/api/v1/real-estate', realEstateRoutes);
+app.use('/api/real-estate', realEstateRoutes);
+app.use('/api/v1/admin/real-estate', realEstateRoutes);
+app.use('/api/admin/real-estate', realEstateRoutes);
+
 
 // 3. Direct App Aliases (Version-less and client compatibility mounts)
 app.use('/api/driver', driverRoutes);

@@ -181,6 +181,12 @@ export class AuthService {
         memoryUserStore.set(cleanPhone, userData);
       }
     } else {
+      if (user.status === 'deleted') {
+        throw new Error('This account has been deleted. Please register a new account.');
+      }
+      if (user.status === 'suspended') {
+        throw new Error('This account is suspended. Please contact customer support.');
+      }
       if (!user.roles.includes(role)) {
         user.roles.push(role);
       }
@@ -227,7 +233,7 @@ export class AuthService {
   }
 
   /**
-   * Register a new user with profile details
+   * Register a new user with profile details and location
    */
   async register(data: {
     phone: string;
@@ -237,6 +243,22 @@ export class AuthService {
     role?: UserRole;
     vehicleType?: string;
     partnerCategory?: 'grocery' | 'hotel' | 'clinic';
+    address?: {
+      fullAddress?: string;
+      houseNumber?: string;
+      street?: string;
+      locality?: string;
+      city?: string;
+      district?: string;
+      state?: string;
+      pincode?: string;
+      country?: string;
+    };
+    location?: {
+      type: 'Point';
+      coordinates: [number, number]; // [longitude, latitude]
+    };
+    locationSource?: 'gps' | 'pincode' | 'manual';
   }) {
     const cleanPhone = data.phone.replace(/\D/g, '').slice(-10);
     const role = data.role || 'CUSTOMER';
@@ -269,6 +291,9 @@ export class AuthService {
         roles: [role],
         currentRole: role,
         status: 'active',
+        address: data.address,
+        location: data.location,
+        locationSource: data.locationSource,
         lastLoginAt: new Date(),
         save: async function () {
           return this;
@@ -291,12 +316,16 @@ export class AuthService {
       user.currentRole = role;
       if (data.email) user.email = data.email;
       if (passwordHash) user.passwordHash = passwordHash;
+      if (data.address) user.address = data.address;
+      if (data.location) user.location = data.location;
+      if (data.locationSource) user.locationSource = data.locationSource;
       if (isDbConnected && typeof user.save === 'function') {
         await user.save();
       } else {
         memoryUserStore.set(cleanPhone, user);
       }
     }
+
 
     if (isDbConnected) {
       try {
@@ -360,6 +389,14 @@ export class AuthService {
       throw new Error('Invalid credentials. Account not found.');
     }
 
+    if (user.status === 'deleted') {
+      throw new Error('This account has been permanently deleted.');
+    }
+
+    if (user.status === 'suspended') {
+      throw new Error('This account is suspended. Please contact customer support.');
+    }
+
     if (!user.passwordHash) {
       throw new Error('This account does not have a password set. Please log in using Phone + OTP.');
     }
@@ -418,6 +455,10 @@ export class AuthService {
         throw new Error('User not found.');
       }
 
+      if (user.status === 'deleted') {
+        throw new Error('Account has been deleted.');
+      }
+
       const payload: AuthUserPayload = {
         userId: user.userId,
         phone: user.phone,
@@ -434,6 +475,77 @@ export class AuthService {
     } catch {
       throw new Error('Invalid or expired refresh token. Please log in again.');
     }
+  }
+
+  /**
+   * Reset user password after verified OTP code
+   */
+  async resetPassword(phone: string, otp: string, newPassword: string) {
+    const cleanPhone = phone.replace(/\D/g, '').slice(-10);
+    const isTestFixtureBypass = env.NODE_ENV === 'test' && otp === '123456';
+    const isDbConnected = mongoose.connection.readyState === 1;
+
+    if (!isTestFixtureBypass) {
+      if (isDbConnected) {
+        const otpRecord = await OtpModel.findOne({ phone: cleanPhone });
+        if (!otpRecord) {
+          throw new Error('OTP has expired or was not requested. Please request a new code.');
+        }
+
+        if (otpRecord.attempts >= env.OTP_MAX_ATTEMPTS) {
+          await OtpModel.deleteOne({ _id: otpRecord._id });
+          throw new Error('Maximum verification attempts exceeded. Please request a new OTP.');
+        }
+
+        const expectedHash = hashOtp(otp, cleanPhone);
+        if (otpRecord.otpHash !== expectedHash) {
+          otpRecord.attempts += 1;
+          await otpRecord.save();
+          throw new Error(`Invalid verification code. ${env.OTP_MAX_ATTEMPTS - otpRecord.attempts} attempts remaining.`);
+        }
+
+        await OtpModel.deleteOne({ _id: otpRecord._id });
+      } else {
+        const otpRecord = memoryOtpStore.get(cleanPhone);
+        if (!otpRecord || otpRecord.expiresAt.getTime() < Date.now()) {
+          throw new Error('OTP has expired or was not requested. Please request a new code.');
+        }
+        const expectedHash = hashOtp(otp, cleanPhone);
+        if (otpRecord.otpHash !== expectedHash) {
+          otpRecord.attempts += 1;
+          throw new Error(`Invalid verification code. ${env.OTP_MAX_ATTEMPTS - otpRecord.attempts} attempts remaining.`);
+        }
+        memoryOtpStore.delete(cleanPhone);
+      }
+    }
+
+    let user: any = null;
+    if (isDbConnected) {
+      try {
+        user = await UserModel.findOne({ phone: cleanPhone });
+      } catch {
+        user = memoryUserStore.get(cleanPhone);
+      }
+    } else {
+      user = memoryUserStore.get(cleanPhone);
+    }
+
+    if (!user) {
+      throw new Error('User account not found with this mobile number.');
+    }
+
+    const passwordHash = await hashPassword(newPassword);
+    user.passwordHash = passwordHash;
+    if (isDbConnected && typeof user.save === 'function') {
+      await user.save();
+    } else {
+      memoryUserStore.set(cleanPhone, user);
+    }
+
+    return {
+      success: true,
+      message: 'Password successfully updated. You can now log in with your new password.',
+    };
   }
 
   private getDefaultNameForRole(role: UserRole): string {
@@ -455,12 +567,36 @@ export class AuthService {
 
   private async ensureProfileForRole(user: IUser, role: UserRole, extraData?: any) {
     if (role === 'CUSTOMER') {
+      const updateDoc: any = { userId: user.userId };
+      if (extraData?.address || extraData?.location) {
+        const addr = extraData.address || {};
+        const coords = extraData.location?.coordinates || [76.1283, 11.1217];
+        const newSavedAddr = {
+          id: `addr_init_${user.phone.slice(-4)}`,
+          label: 'Home',
+          addressLine:
+            addr.fullAddress ||
+            `${addr.houseNumber || ''} ${addr.street || ''} ${addr.locality || ''}`.trim() ||
+            'Primary Delivery Address',
+          city: addr.city || 'Manjeri',
+          state: addr.state || 'Kerala',
+          postalCode: addr.pincode || '676121',
+          location: {
+            type: 'Point',
+            coordinates: coords,
+          },
+          isDefault: true,
+        };
+        updateDoc.$addToSet = { savedAddresses: newSavedAddr };
+      }
+
       await CustomerProfileModel.findOneAndUpdate(
         { userId: user.userId },
-        { userId: user.userId },
+        updateDoc,
         { upsert: true, new: true }
       );
     } else if (role === 'TAXI_DRIVER') {
+
       const driverId = `drv_${user.phone.slice(-4)}`;
       const driver = await TaxiDriverModel.findOneAndUpdate(
         { userId: user.userId },

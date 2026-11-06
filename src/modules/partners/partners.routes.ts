@@ -40,4 +40,11 @@ router.patch('/grocery/orders/:id/status', (req, res) => partnersController.upda
 router.get('/integrations/razorpay', (req, res) => partnersController.getRazorpayIntegration(req, res));
 router.post('/integrations/razorpay', (req, res) => partnersController.saveRazorpayIntegration(req, res));
 
+// Store Images & Branding Management
+router.get('/store/branding', (req, res) => partnersController.getStoreBranding(req, res));
+router.put('/store/branding', (req, res) => partnersController.updateStoreBranding(req, res));
+router.patch('/store/branding', (req, res) => partnersController.updateStoreBranding(req, res));
+router.post('/store/upload-image', (req, res) => partnersController.uploadStoreImage(req, res));
+router.delete('/store/gallery-image', (req, res) => partnersController.deleteGalleryImage(req, res));
+
 export default router;

@@ -20,3 +20,6 @@ export * from './Subscription.js';
 export * from './Content.js';
 export * from './AuditLog.js';
 export * from './SupportTicket.js';
+export * from './Property.js';
+export * from './PropertyListingFee.js';
+export * from './PropertyListingPayment.js';
