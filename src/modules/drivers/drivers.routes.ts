@@ -19,6 +19,7 @@ router.post('/documents/vehicle-photos', (req, res) => driversController.updateV
 
 // Availability & Location
 router.post('/availability', (req, res) => driversController.setAvailability(req, res));
+router.patch('/availability', (req, res) => driversController.setAvailability(req, res));
 router.post('/location', (req, res) => driversController.updateLocation(req, res));
 
 // Rides

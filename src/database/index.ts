@@ -23,3 +23,4 @@ export * from './SupportTicket.js';
 export * from './Property.js';
 export * from './PropertyListingFee.js';
 export * from './PropertyListingPayment.js';
+export * from './TaxiPricing.js';

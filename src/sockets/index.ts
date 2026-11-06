@@ -132,13 +132,32 @@ export const socketEvents = {
     if (io) io.to('drivers_pool').emit('taxi:ride:request', ride);
   },
   emitDriverAssigned: (rideId: string, driver: any) => {
-    if (io) io.to(`ride:${rideId}`).emit('taxi:driver:assigned', driver);
+    if (io) {
+      io.to(`ride:${rideId}`).emit('taxi:driver:assigned', driver);
+      if (driver?.customerId) {
+        io.to(`user:${driver.customerId}`).emit('taxi:driver:assigned', driver);
+      }
+    }
+  },
+  emitDriverArrived: (rideId: string) => {
+    if (io) io.to(`ride:${rideId}`).emit('taxi:driver:arrived', { status: 'arrived' });
   },
   emitRideStarted: (rideId: string) => {
     if (io) io.to(`ride:${rideId}`).emit('taxi:ride:started', { status: 'trip_started' });
   },
   emitRideCompleted: (rideId: string, summary: any) => {
     if (io) io.to(`ride:${rideId}`).emit('taxi:ride:completed', summary);
+  },
+  emitDriverLocation: (rideId: string, location: { latitude: number; longitude: number; heading?: number }) => {
+    if (io) {
+      io.to(`ride:${rideId}`).emit('taxi:driver:location', {
+        ...location,
+        timestamp: new Date().toISOString(),
+      });
+    }
+  },
+  emitRideCancelled: (rideId: string, reason?: string) => {
+    if (io) io.to(`ride:${rideId}`).emit('taxi:ride:cancelled', { status: 'cancelled', reason });
   },
 
   // Delivery events

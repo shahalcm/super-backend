@@ -28,6 +28,27 @@ export class TaxiController {
     }
   }
 
+  async getPricing(req: Request, res: Response) {
+    try {
+      const includeInactive = req.query.all === 'true' || req.query.includeInactive === 'true';
+      const pricing = await taxiService.getPricing(includeInactive);
+      return sendSuccess(res, pricing, 'Taxi pricing retrieved');
+    } catch (error: any) {
+      return sendError(res, error.message, 500);
+    }
+  }
+
+  async updatePricing(req: Request, res: Response) {
+    try {
+      const pricingList = Array.isArray(req.body) ? req.body : [req.body];
+      const adminId = (req as any).user?.userId || 'admin';
+      const result = await taxiService.updatePricing(pricingList, adminId);
+      return sendSuccess(res, result, 'Taxi pricing updated successfully');
+    } catch (error: any) {
+      return sendError(res, error.message, 400);
+    }
+  }
+
   async getNearbyDrivers(req: Request, res: Response) {
     try {
       const { lat, lng, vehicleType } = req.query;

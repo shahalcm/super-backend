@@ -1,7 +1,7 @@
 // src/modules/drivers/drivers.service.ts
-import { TaxiDriverModel, TaxiRideModel, PayoutModel } from '../../database/index.js';
+import { TaxiDriverModel, TaxiRideModel, PayoutModel, UserModel } from '../../database/index.js';
 import { v4 as uuidv4 } from 'uuid';
-
+import { socketEvents } from '../../sockets/index.js';
 import mongoose from 'mongoose';
 
 const memoryDriverStore = new Map<string, any>();
@@ -12,14 +12,15 @@ export class DriversService {
       try {
         let driver = await TaxiDriverModel.findOne({ userId });
         if (!driver) {
+          const user = await UserModel.findOne({ userId });
           driver = await TaxiDriverModel.create({
             driverId: `drv_${uuidv4().slice(0, 8)}`,
             userId,
-            fullName: 'New Driver',
-            phone: '9876543210',
+            fullName: user?.fullName || 'Driver Partner',
+            phone: user?.phone || '',
             vehicleType: 'Sedan',
-            vehicleModel: 'Toyota Innova',
-            registrationNumber: 'KA-01-AB-1234',
+            vehicleModel: '',
+            registrationNumber: '',
             status: 'draft',
           });
         }
@@ -33,11 +34,11 @@ export class DriversService {
       memoryDriverStore.set(userId, {
         driverId: `drv_${uuidv4().slice(0, 8)}`,
         userId,
-        fullName: 'New Driver',
-        phone: '9876543210',
+        fullName: 'Driver Partner',
+        phone: '',
         vehicleType: 'Sedan',
-        vehicleModel: 'Toyota Innova',
-        registrationNumber: 'KA-01-AB-1234',
+        vehicleModel: '',
+        registrationNumber: '',
         status: 'draft',
         isOnline: false,
         save: async function () {
@@ -144,6 +145,17 @@ export class DriversService {
       },
       { new: true }
     );
+
+    if (driver?.driverId) {
+      const activeRide = await TaxiRideModel.findOne({
+        driverId: driver.driverId,
+        status: { $in: ['accepted', 'arriving', 'arrived', 'trip_started'] },
+      });
+      if (activeRide) {
+        socketEvents.emitDriverLocation(activeRide.rideId, { latitude, longitude, heading });
+      }
+    }
+
     return { success: true, updatedLocation: driver?.currentLocation };
   }
 
@@ -200,6 +212,19 @@ export class DriversService {
 
     driver.isBusy = true;
     await driver.save();
+
+    // Broadcast driver assigned event to customer
+    socketEvents.emitDriverAssigned(ride.rideId, {
+      driverId: driver.driverId,
+      name: driver.fullName,
+      phone: driver.phone,
+      vehicleType: driver.vehicleType,
+      vehicleModel: driver.vehicleModel,
+      vehicleNumber: driver.registrationNumber,
+      rating: driver.rating || 5.0,
+      customerId: ride.customerId,
+    });
+
     return ride;
   }
 
@@ -222,6 +247,7 @@ export class DriversService {
       { new: true }
     );
     if (!ride) throw new Error('Could not update status to arrived.');
+    socketEvents.emitDriverArrived(ride.rideId);
     return ride;
   }
 
@@ -237,6 +263,7 @@ export class DriversService {
     ride.status = 'trip_started';
     ride.startedAt = new Date();
     await ride.save();
+    socketEvents.emitRideStarted(ride.rideId);
     return ride;
   }
 
@@ -260,6 +287,12 @@ export class DriversService {
       driver.totalRides += 1;
       await driver.save();
     }
+
+    socketEvents.emitRideCompleted(ride.rideId, {
+      rideId: ride.rideId,
+      finalFare: ride.fare.totalFare,
+      status: 'completed',
+    });
 
     return ride;
   }
