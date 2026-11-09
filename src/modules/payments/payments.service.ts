@@ -2,6 +2,7 @@
 import { PaymentModel, OrderModel, TaxiRideModel, RefundModel } from '../../database/index.js';
 import { verifyWebhookSignature } from '../../config/razorpay.js';
 import { logger } from '../../utils/logger.js';
+import { walletService } from '../wallet/wallet.service.js';
 
 export class PaymentsService {
   async handleWebhook(rawBody: string | Buffer, signature: string, eventData: any) {
@@ -18,8 +19,29 @@ export class PaymentsService {
 
     switch (event) {
       case 'payment.captured': {
-        const orderId = paymentEntity?.notes?.orderId;
+        const orderId = paymentEntity?.notes?.orderId || paymentEntity?.order_id;
         const rideId = paymentEntity?.notes?.rideId;
+        const isRecharge = paymentEntity?.notes?.type === 'wallet_recharge';
+
+        if (isRecharge) {
+          const userId = paymentEntity?.notes?.userId;
+          const app = paymentEntity?.notes?.app || 'taxi';
+          const accountType = paymentEntity?.notes?.accountType || 'taxi_driver';
+          const offerId = paymentEntity?.notes?.offerId;
+
+          if (userId && offerId) {
+            try {
+              await walletService.verifyRechargePayment(userId, app, accountType, {
+                orderId: orderId || paymentEntity?.order_id || 'order_webhook',
+                paymentId: paymentEntity.id,
+                signature: 'webhook_verified',
+                offerId,
+              });
+            } catch (err) {
+              logger.warn({ err }, 'Error crediting wallet via webhook');
+            }
+          }
+        }
 
         if (orderId) {
           await OrderModel.findOneAndUpdate(

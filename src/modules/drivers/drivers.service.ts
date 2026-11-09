@@ -2,6 +2,7 @@
 import { TaxiDriverModel, TaxiRideModel, PayoutModel, UserModel } from '../../database/index.js';
 import { v4 as uuidv4 } from 'uuid';
 import { socketEvents } from '../../sockets/index.js';
+import { isTestPhoneNumber } from '../../config/twilio.js';
 import mongoose from 'mongoose';
 
 const memoryDriverStore = new Map<string, any>();
@@ -13,15 +14,16 @@ export class DriversService {
         let driver = await TaxiDriverModel.findOne({ userId });
         if (!driver) {
           const user = await UserModel.findOne({ userId });
+          const isTest = isTestPhoneNumber(user?.phone || '');
           driver = await TaxiDriverModel.create({
             driverId: `drv_${uuidv4().slice(0, 8)}`,
             userId,
             fullName: user?.fullName || 'Driver Partner',
             phone: user?.phone || '',
             vehicleType: 'Sedan',
-            vehicleModel: '',
-            registrationNumber: '',
-            status: 'draft',
+            vehicleModel: isTest ? 'Toyota Innova Crysta' : '',
+            registrationNumber: isTest ? 'KA-01-MJ-9999' : '',
+            status: isTest ? 'approved' : 'draft',
           });
         }
         return driver;

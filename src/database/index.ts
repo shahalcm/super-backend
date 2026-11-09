@@ -24,3 +24,6 @@ export * from './Property.js';
 export * from './PropertyListingFee.js';
 export * from './PropertyListingPayment.js';
 export * from './TaxiPricing.js';
+export * from './RechargeOffer.js';
+export * from './Wallet.js';
+export * from './WalletTransaction.js';

@@ -19,6 +19,7 @@ import {
   EcosystemAppConfigModel,
   GroceryProductModel,
 } from '../../database/index.js';
+import { walletService } from '../wallet/wallet.service.js';
 
 import mongoose from 'mongoose';
 
@@ -390,6 +391,43 @@ export class AdminService {
       targetId,
       details,
     });
+  }
+
+  // 11. Recharge Offers & Promotional Wallets
+  async getRechargeOffers(app?: string) {
+    return walletService.adminGetOffers(app);
+  }
+
+  async saveRechargeOffer(data: any) {
+    const res = await walletService.adminSaveOffer(data);
+    await this.logAction(
+      'System Admin',
+      'save_recharge_offer',
+      'RechargeOffers',
+      data.offerId || 'new',
+      `Saved recharge offer: ₹${data.rechargeAmount} -> ₹${data.totalCredit} (${data.app})`
+    ).catch(() => {});
+    return res;
+  }
+
+  async updateRechargeOfferStatus(offerId: string, status: 'active' | 'inactive' | 'expired') {
+    const res = await walletService.adminUpdateOfferStatus(offerId, status);
+    await this.logAction(
+      'System Admin',
+      'update_recharge_offer_status',
+      'RechargeOffers',
+      offerId,
+      `Updated status to ${status}`
+    ).catch(() => {});
+    return res;
+  }
+
+  async getWalletTransactions(params: any) {
+    return walletService.adminGetTransactions(params);
+  }
+
+  async getWalletAnalytics() {
+    return walletService.adminGetAnalytics();
   }
 }
 

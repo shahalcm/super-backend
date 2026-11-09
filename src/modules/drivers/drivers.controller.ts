@@ -7,7 +7,13 @@ export class DriversController {
   async getProfile(req: Request, res: Response) {
     try {
       const result = await driversService.getProfile(req.user!.userId);
-      return sendSuccess(res, result, 'Driver profile retrieved');
+      const doc = result.toObject ? result.toObject() : { ...result };
+      const enriched = {
+        ...doc,
+        id: doc.driverId || doc.id || doc._id?.toString(),
+        applicationStatus: doc.status || 'draft',
+      };
+      return sendSuccess(res, enriched, 'Driver profile retrieved');
     } catch (error: any) {
       return sendError(res, error.message, 400);
     }

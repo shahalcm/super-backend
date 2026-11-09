@@ -28,6 +28,7 @@ import { taxiService } from '../src/modules/taxi/taxi.service.js';
 import { realEstateService } from '../src/modules/real-estate/real-estate.service.js';
 import { customersService } from '../src/modules/customers/customers.service.js';
 import { contentService } from '../src/modules/content/content.service.js';
+import { walletService } from '../src/modules/wallet/wallet.service.js';
 import { UserModel } from '../src/database/index.js';
 import crypto from 'crypto';
 
@@ -921,7 +922,7 @@ async function runTests() {
 
   // 54. Account Deletion API with Idempotence, PII Scrubbing, and Statutory Compliance
   await test('Account Deletion API with Idempotence, PII Scrubbing, and Statutory Compliance', async () => {
-    const deleteTestPhone = `9876${Date.now().toString().slice(-6)}`;
+    const deleteTestPhone = `9${Math.floor(100000000 + Math.random() * 900000000)}`;
     const regRes = await authService.register({
       phone: deleteTestPhone,
       fullName: 'Rahul Krishnan',
@@ -963,6 +964,285 @@ async function runTests() {
       },
       /deleted|Invalid credentials/
     );
+  });
+
+  // 56. Multi-App Recharge Offers Retrieval with Role Filtering (Taxi, Partner, Delivery)
+  await test('Multi-App Recharge Offers Retrieval with Role Filtering (Taxi, Partner, Delivery)', async () => {
+    const taxiOffers = await walletService.getOffers('taxi', 'TAXI_DRIVER');
+    assert(Array.isArray(taxiOffers), 'Taxi offers must be an array');
+    assert(taxiOffers.length > 0, 'Taxi offers must return default or configured offers');
+    assert(taxiOffers.every((o: any) => o.app === 'taxi' || o.app === 'all'));
+
+    const partnerOffers = await walletService.getOffers('partner', 'PARTNER_ADMIN');
+    assert(Array.isArray(partnerOffers));
+    assert(partnerOffers.every((o: any) => o.app === 'partner' || o.app === 'all'));
+
+    const deliveryOffers = await walletService.getOffers('delivery', 'DELIVERY_RIDER');
+    assert(Array.isArray(deliveryOffers));
+    assert(deliveryOffers.every((o: any) => o.app === 'delivery' || o.app === 'all'));
+  });
+
+  // 57. Admin Dynamic Pricing & Promotional Bonus Configuration (No Mobile Code Deploy Needed)
+  await test('Admin Dynamic Pricing & Promotional Bonus Configuration (No Mobile Code Deploy Needed)', async () => {
+    const customOfferId = `custom_promo_${Date.now()}`;
+    const saved = await walletService.adminSaveOffer({
+      offerId: customOfferId,
+      name: 'Dynamic Weekend Mega Bonus',
+      description: 'Admin created dynamic offer: Pay ₹2,000 get ₹20,000 total credit',
+      app: 'taxi',
+      userRole: 'TAXI_DRIVER',
+      rechargeAmount: 2000,
+      promotionalBonus: 18000,
+      totalCredit: 20000,
+      minAmount: 2000,
+      maxAmount: 2000,
+      badgeText: '10X WEEKEND',
+      status: 'active',
+      terms: ['Admin configurable dynamic term', 'Promotional bonus expires in 30 days'],
+    });
+
+    assert.strictEqual(saved.offerId, customOfferId);
+    assert.strictEqual(saved.rechargeAmount, 2000);
+    assert.strictEqual(saved.promotionalBonus, 18000);
+    assert.strictEqual(saved.totalCredit, 20000);
+
+    // Verify it is dynamically visible to mobile client immediately without app restart/build
+    const refreshedOffers = await walletService.getOffers('taxi', 'TAXI_DRIVER');
+    const matched = refreshedOffers.find((o: any) => o.offerId === customOfferId);
+    assert(matched, 'Newly saved admin offer must be dynamically returned in mobile API');
+    assert.strictEqual(matched.promotionalBonus, 18000);
+  });
+
+  // 58. Razorpay Cryptographic HMAC-SHA256 Signature Verification & Tamper Resistance
+  await test('Razorpay Cryptographic HMAC-SHA256 Signature Verification & Tamper Resistance', () => {
+    const testOrderId = 'order_test_982348234';
+    const testPaymentId = 'pay_test_839284294';
+    const secret = env.RAZORPAY_KEY_SECRET;
+
+    // Correct HMAC signature
+    const validSig = crypto
+      .createHmac('sha256', secret)
+      .update(`${testOrderId}|${testPaymentId}`)
+      .digest('hex');
+
+    const isValid = verifyRazorpaySignature(testOrderId, testPaymentId, validSig);
+    assert.strictEqual(isValid, true, 'Authentic Razorpay signature must be accepted');
+
+    // Tampered paymentId
+    const tamperedPaymentId = 'pay_test_tampered_999';
+    const isTamperedValid = verifyRazorpaySignature(testOrderId, tamperedPaymentId, validSig);
+    assert.strictEqual(isTamperedValid, false, 'Tampered payment ID must be rejected');
+
+    // Corrupted signature
+    const corruptedSig = validSig.slice(0, -4) + '0000';
+    const isCorruptedValid = verifyRazorpaySignature(testOrderId, testPaymentId, corruptedSig);
+    assert.strictEqual(isCorruptedValid, false, 'Corrupted signature must be rejected');
+  });
+
+  // 59. Secure Backend Order Generation against Authoritative Offer (Zero Client-Side Price Trust)
+  await test('Secure Backend Order Generation against Authoritative Offer (Zero Client-Side Price Trust)', async () => {
+    const testDriverUserId = `usr_test_driver_${Date.now()}`;
+    const order = await walletService.createRechargeOrder(
+      testDriverUserId,
+      'taxi',
+      'taxi_driver',
+      'rch_taxi_1000'
+    );
+
+    assert(order.orderId, 'Razorpay orderId must be generated by backend');
+    assert.strictEqual(order.amount, 1000, 'Recharge amount must be authoritative ₹1000 from server');
+    assert.strictEqual(order.promotionalBonus, 9000, 'Bonus must be authoritative ₹9000 from server');
+    assert.strictEqual(order.totalCredit, 10000, 'Total credit must be ₹10000');
+    assert.strictEqual(order.currency, 'INR');
+  });
+
+  // 60. Authoritative Payment Verification & Atomic Dual-Balance Ledger Credit (Cash vs Promo Separation)
+  await test('Authoritative Payment Verification & Atomic Dual-Balance Ledger Credit (Cash vs Promo Separation)', async () => {
+    const testDriverUserId = `usr_test_driver_dual_${Date.now()}`;
+    const initialWallet = await walletService.getOrCreateWallet(testDriverUserId, 'taxi', 'taxi_driver');
+    assert.strictEqual(initialWallet.cashBalance, 0);
+    assert.strictEqual(initialWallet.promotionalBalance, 0);
+    assert.strictEqual(initialWallet.totalAvailableBalance, 0);
+
+    const testPaymentId = `pay_verified_${Date.now()}`;
+    const testOrderId = `order_verified_${Date.now()}`;
+    const testSig = crypto
+      .createHmac('sha256', env.RAZORPAY_KEY_SECRET)
+      .update(`${testOrderId}|${testPaymentId}`)
+      .digest('hex');
+
+    const verifyRes = await walletService.verifyRechargePayment(
+      testDriverUserId,
+      'taxi',
+      'taxi_driver',
+      {
+        orderId: testOrderId,
+        paymentId: testPaymentId,
+        signature: testSig,
+        offerId: 'rch_taxi_1000',
+      }
+    );
+
+    assert.strictEqual(verifyRes.success, true);
+    assert.strictEqual(verifyRes.creditedCash, 1000);
+    assert.strictEqual(verifyRes.creditedPromo, 9000);
+    assert.strictEqual(verifyRes.totalCredit, 10000);
+
+    // Verify wallet state
+    const updatedWallet = await walletService.getOrCreateWallet(testDriverUserId, 'taxi', 'taxi_driver');
+    assert.strictEqual(updatedWallet.cashBalance, 1000, 'Cash balance must equal ₹1000 paid money');
+    assert.strictEqual(updatedWallet.promotionalBalance, 9000, 'Promo balance must equal ₹9000 bonus credits');
+    assert.strictEqual(updatedWallet.totalAvailableBalance, 10000, 'Total platform usable balance is ₹10000');
+
+    // Verify double-entry ledger entries exist
+    const txHistory = await walletService.getTransactions(testDriverUserId, 'taxi');
+    assert(Array.isArray(txHistory.data), 'Transactions data must be an array');
+    assert(txHistory.data.length >= 2, 'Must have distinct cash and promotional ledger transactions');
+    const cashTx = txHistory.data.find((t: any) => t.transactionType === 'recharge_cash');
+    const promoTx = txHistory.data.find((t: any) => t.transactionType === 'recharge_promo');
+    assert(cashTx, 'Cash recharge ledger entry must exist');
+    assert(promoTx, 'Promotional credit ledger entry must exist');
+    assert.strictEqual(cashTx.cashBalanceChange, 1000);
+    assert.strictEqual(promoTx.promoBalanceChange, 9000);
+  });
+
+  // 61. Payment Verification Idempotency Protection (Prevents Double Crediting on Network Retries)
+  await test('Payment Verification Idempotency Protection (Prevents Double Crediting on Network Retries)', async () => {
+    const testDriverUserId = `usr_test_driver_idemp_${Date.now()}`;
+    const paymentId = `pay_idemp_${Date.now()}`;
+    const orderId = `order_idemp_${Date.now()}`;
+    const sig = crypto
+      .createHmac('sha256', env.RAZORPAY_KEY_SECRET)
+      .update(`${orderId}|${paymentId}`)
+      .digest('hex');
+
+    // First call: Credits the wallet
+    const firstCall = await walletService.verifyRechargePayment(
+      testDriverUserId,
+      'taxi',
+      'taxi_driver',
+      {
+        orderId,
+        paymentId,
+        signature: sig,
+        offerId: 'rch_taxi_500',
+      }
+    );
+    assert.strictEqual(firstCall.success, true);
+    assert.strictEqual(firstCall.isDuplicate, false);
+    assert.strictEqual(firstCall.wallet.cashBalance, 500);
+    assert.strictEqual(firstCall.wallet.promotionalBalance, 4500);
+
+    // Second call: Replay attack or network retry with the exact same paymentId
+    const retryCall = await walletService.verifyRechargePayment(
+      testDriverUserId,
+      'taxi',
+      'taxi_driver',
+      {
+        orderId,
+        paymentId,
+        signature: sig,
+        offerId: 'rch_taxi_500',
+      }
+    );
+    assert.strictEqual(retryCall.success, true);
+    assert.strictEqual(retryCall.isDuplicate, true, 'Retry must be flagged as duplicate');
+
+    // Balance must NOT have doubled
+    const walletAfterRetry = await walletService.getOrCreateWallet(testDriverUserId, 'taxi', 'taxi_driver');
+    assert.strictEqual(walletAfterRetry.cashBalance, 500, 'Cash balance must not duplicate');
+    assert.strictEqual(walletAfterRetry.promotionalBalance, 4500, 'Promo balance must not duplicate');
+    assert.strictEqual(walletAfterRetry.totalAvailableBalance, 5000);
+  });
+
+  // 62. Non-Withdrawable Promotional Credits Security Gate (Rejects Promotional Fund Cashout)
+  await test('Non-Withdrawable Promotional Credits Security Gate (Rejects Promotional Fund Cashout)', async () => {
+    const testPartnerUserId = `usr_test_partner_withdraw_${Date.now()}`;
+    // User has ₹500 cash and ₹4,500 promotional credits (Total ₹5,000)
+    const paymentId = `pay_wd_${Date.now()}`;
+    const orderId = `order_wd_${Date.now()}`;
+    const sig = crypto
+      .createHmac('sha256', env.RAZORPAY_KEY_SECRET)
+      .update(`${orderId}|${paymentId}`)
+      .digest('hex');
+
+    await walletService.verifyRechargePayment(
+      testPartnerUserId,
+      'partner',
+      'partner_admin',
+      {
+        orderId,
+        paymentId,
+        signature: sig,
+        offerId: 'rch_partner_500',
+      }
+    );
+
+    const wallet = await walletService.getOrCreateWallet(testPartnerUserId, 'partner', 'partner_admin');
+    assert.strictEqual(wallet.cashBalance, 500);
+    assert.strictEqual(wallet.promotionalBalance, 4500);
+    assert.strictEqual(wallet.totalAvailableBalance, 5000);
+
+    // Attempting to withdraw ₹2,000 (which is less than total balance ₹5,000 but exceeds cash balance ₹500)
+    await assert.rejects(
+      async () => {
+        await walletService.requestWithdrawal(testPartnerUserId, 'partner', 'partner_admin', 2000);
+      },
+      (err: any) => {
+        assert(err.message.includes('exceeds your eligible cash balance'));
+        assert(err.message.includes('Promotional bonus credits'));
+        return true;
+      },
+      'Withdrawal exceeding cashBalance must be rejected even if total available balance is sufficient'
+    );
+  });
+
+  // 63. Eligible Cash Balance Withdrawal & Double-Entry Ledger Audit Trail
+  await test('Eligible Cash Balance Withdrawal & Double-Entry Ledger Audit Trail', async () => {
+    const testDeliveryUserId = `usr_test_rider_payout_${Date.now()}`;
+    const paymentId = `pay_del_${Date.now()}`;
+    const orderId = `order_del_${Date.now()}`;
+    const sig = crypto
+      .createHmac('sha256', env.RAZORPAY_KEY_SECRET)
+      .update(`${orderId}|${paymentId}`)
+      .digest('hex');
+
+    // Recharge ₹1,000 -> ₹1,000 Cash + ₹9,000 Promo
+    await walletService.verifyRechargePayment(
+      testDeliveryUserId,
+      'delivery',
+      'delivery_rider',
+      {
+        orderId,
+        paymentId,
+        signature: sig,
+        offerId: 'rch_del_1000',
+      }
+    );
+
+    // Withdraw ₹400 eligible cash
+    const withdrawRes = await walletService.requestWithdrawal(
+      testDeliveryUserId,
+      'delivery',
+      'delivery_rider',
+      400
+    );
+
+    assert.strictEqual(withdrawRes.success, true);
+    assert.strictEqual(withdrawRes.newCashBalance, 600);
+
+    const updatedRiderWallet = await walletService.getOrCreateWallet(testDeliveryUserId, 'delivery', 'delivery_rider');
+    assert.strictEqual(updatedRiderWallet.cashBalance, 600);
+    assert.strictEqual(updatedRiderWallet.promotionalBalance, 9000);
+    assert.strictEqual(updatedRiderWallet.totalAvailableBalance, 9600);
+
+    // Verify withdrawal is auditable in ledger
+    const history = await walletService.getTransactions(testDeliveryUserId, 'delivery');
+    assert(Array.isArray(history.data), 'Ledger data must be an array');
+    const withdrawalTx = history.data.find((t: any) => t.transactionType === 'payout_withdrawal');
+    assert(withdrawalTx, 'Audit ledger must record payout_withdrawal transaction');
+    assert.strictEqual(withdrawalTx.cashBalanceChange, -400);
+    assert.strictEqual(withdrawalTx.promoBalanceChange, 0);
   });
 
   console.log(`\n================================================================`);

@@ -1,6 +1,7 @@
 // src/modules/partners/partners.routes.ts
 import { Router } from 'express';
 import { partnersController } from './partners.controller.js';
+import { walletController } from '../wallet/wallet.controller.js';
 import { authenticate } from '../../middleware/auth.js';
 
 const router = Router();
@@ -46,5 +47,36 @@ router.put('/store/branding', (req, res) => partnersController.updateStoreBrandi
 router.patch('/store/branding', (req, res) => partnersController.updateStoreBranding(req, res));
 router.post('/store/upload-image', (req, res) => partnersController.uploadStoreImage(req, res));
 router.delete('/store/gallery-image', (req, res) => partnersController.deleteGalleryImage(req, res));
+
+// Partner Wallet & Recharge Offers
+router.get('/wallet', (req, res) => {
+  req.query.app = 'partner';
+  req.query.accountType = 'partner';
+  return walletController.getBalance(req, res);
+});
+router.get('/wallet/offers', (req, res) => {
+  req.query.app = 'partner';
+  req.query.userRole = 'PARTNER_OWNER';
+  return walletController.getOffers(req, res);
+});
+router.get('/wallet/recharge-offers', (req, res) => {
+  req.query.app = 'partner';
+  req.query.userRole = 'PARTNER_OWNER';
+  return walletController.getOffers(req, res);
+});
+router.post('/wallet/recharge', (req, res) => {
+  req.body.app = 'partner';
+  req.body.accountType = 'partner';
+  return walletController.createRechargeOrder(req, res);
+});
+router.post('/wallet/recharge/verify', (req, res) => {
+  req.body.app = 'partner';
+  req.body.accountType = 'partner';
+  return walletController.verifyRechargePayment(req, res);
+});
+router.get('/wallet/transactions', (req, res) => {
+  req.query.app = 'partner';
+  return walletController.getTransactions(req, res);
+});
 
 export default router;

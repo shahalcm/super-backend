@@ -235,6 +235,73 @@ export class AdminController {
       return sendError(res, error.message, 400);
     }
   }
+
+  // 11. Recharge Offers & Promotional Wallets
+  async getRechargeOffers(req: Request, res: Response) {
+    try {
+      const { app } = req.query;
+      const result = await adminService.getRechargeOffers(app as string);
+      return sendSuccess(res, result, 'Recharge offers retrieved');
+    } catch (error: any) {
+      return sendError(res, error.message, 400);
+    }
+  }
+
+  async createRechargeOffer(req: Request, res: Response) {
+    try {
+      const result = await adminService.saveRechargeOffer(req.body);
+      return sendSuccess(res, result, 'Recharge offer created successfully', 201);
+    } catch (error: any) {
+      return sendError(res, error.message, 400);
+    }
+  }
+
+  async updateRechargeOffer(req: Request, res: Response) {
+    try {
+      const { id } = req.params;
+      const result = await adminService.saveRechargeOffer({ ...req.body, offerId: id || req.body.offerId });
+      return sendSuccess(res, result, 'Recharge offer updated successfully');
+    } catch (error: any) {
+      return sendError(res, error.message, 400);
+    }
+  }
+
+  async updateRechargeOfferStatus(req: Request, res: Response) {
+    try {
+      const { id } = req.params;
+      const { status } = req.body;
+      const result = await adminService.updateRechargeOfferStatus(id, status);
+      return sendSuccess(res, result, 'Recharge offer status updated');
+    } catch (error: any) {
+      return sendError(res, error.message, 400);
+    }
+  }
+
+  async getWalletTransactions(req: Request, res: Response) {
+    try {
+      const { app, accountType, status, search, page, limit } = req.query;
+      const result = await adminService.getWalletTransactions({
+        app: app as string,
+        accountType: accountType as string,
+        status: status as string,
+        search: search as string,
+        page: page ? parseInt(page as string) : 1,
+        limit: limit ? parseInt(limit as string) : 50,
+      });
+      return sendSuccess(res, result, 'Wallet transactions retrieved');
+    } catch (error: any) {
+      return sendError(res, error.message, 400);
+    }
+  }
+
+  async getWalletAnalytics(req: Request, res: Response) {
+    try {
+      const result = await adminService.getWalletAnalytics();
+      return sendSuccess(res, result, 'Wallet analytics retrieved');
+    } catch (error: any) {
+      return sendError(res, error.message, 400);
+    }
+  }
 }
 
 export const adminController = new AdminController();

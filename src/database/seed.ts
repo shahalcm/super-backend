@@ -99,19 +99,129 @@ export async function seedDatabase() {
     await EcosystemAppConfigModel.findOneAndUpdate({ appId: a.appId }, { $set: a }, { upsert: true });
   }
 
-  // 2. Platform Admins
+  // 2. Universal Master Test Account (Works in UBS Super, Taxi, Partner, and Delivery)
   const adminPassword = await hashPassword('AdminPass2026!');
-  await UserModel.findOneAndUpdate(
+  const masterUser = await UserModel.findOneAndUpdate(
     { phone: '9999999999' },
     {
       userId: 'usr_super_admin',
       phone: '9999999999',
       email: 'admin@ubssuper.com',
-      fullName: 'Devansh Sharma (Chief Administrator)',
+      fullName: 'Devansh Sharma (Universal Master Test Account)',
       passwordHash: adminPassword,
-      roles: ['ADMIN', 'SUPER_ADMIN'],
-      currentRole: 'SUPER_ADMIN',
+      roles: ['CUSTOMER', 'TAXI_DRIVER', 'DELIVERY_RIDER', 'PARTNER_OWNER', 'ADMIN', 'SUPER_ADMIN'],
+      currentRole: 'CUSTOMER',
+      partnerBusinessId: 'ptn_master_9999',
+      taxiDriverProfileId: 'drv_master_9999',
+      deliveryRiderProfileId: 'rdr_master_9999',
+      location: { type: 'Point', coordinates: [77.6387, 12.9784] },
       status: 'active',
+    },
+    { upsert: true, new: true }
+  );
+
+  // Master Customer Profile
+  await CustomerProfileModel.findOneAndUpdate(
+    { userId: masterUser.userId },
+    {
+      userId: masterUser.userId,
+      walletBalance: 2500,
+      savedAddresses: [
+        {
+          id: 'addr_master_home_1',
+          label: 'Home',
+          addressLine: 'Plot 101, 12th Main Road, Indiranagar',
+          city: 'Bengaluru',
+          state: 'Karnataka',
+          postalCode: '560038',
+          location: { type: 'Point', coordinates: [77.6387, 12.9784] },
+          isDefault: true,
+        },
+      ],
+    },
+    { upsert: true }
+  );
+
+  // Master Taxi Driver Profile (Approved & Active)
+  await TaxiDriverModel.findOneAndUpdate(
+    { driverId: 'drv_master_9999' },
+    {
+      driverId: 'drv_master_9999',
+      userId: masterUser.userId,
+      fullName: 'Devansh Sharma (Test Driver)',
+      phone: '9999999999',
+      vehicleType: 'Sedan',
+      vehicleModel: 'Toyota Innova Crysta',
+      registrationNumber: 'KA-01-MJ-9999',
+      status: 'approved',
+      isOnline: true,
+      isBusy: false,
+      rating: 4.98,
+      totalRides: 450,
+      totalEarnings: 84200,
+      commissionPaid: 12630,
+      outstandingPayout: 6400,
+      currentLocation: {
+        type: 'Point',
+        coordinates: [77.6387, 12.9784],
+        heading: 0,
+        updatedAt: new Date(),
+      },
+    },
+    { upsert: true }
+  );
+
+  // Master Partner Business Profile (Approved Grocery Flagship)
+  await PartnerBusinessModel.findOneAndUpdate(
+    { partnerId: 'ptn_master_9999' },
+    {
+      partnerId: 'ptn_master_9999',
+      userId: masterUser.userId,
+      businessName: 'UBS Supermart & Gourmet Flagship',
+      legalName: 'UBS Supermart Retail India Pvt Ltd',
+      category: 'grocery',
+      ownerName: 'Devansh Sharma',
+      ownerPhone: '9999999999',
+      ownerEmail: 'partner@ubssuper.com',
+      status: 'approved',
+      registrationFee: { amount: 999, currency: 'INR', isPaid: true },
+      rating: 4.95,
+      totalOrders: 1820,
+      totalRevenue: 520000,
+      deliveryFee: 0,
+      minOrderAmount: 199,
+      estimatedDeliveryMinutes: 20,
+      deliveryAvailable: true,
+      operatingHours: { openTime: '07:00', closeTime: '23:00', isOpen: true },
+      address: 'Plot 101, 12th Main Road, Indiranagar',
+      city: 'Bengaluru',
+      state: 'Karnataka',
+      country: 'India',
+      postalCode: '560038',
+      location: { type: 'Point', coordinates: [77.6387, 12.9784] },
+    },
+    { upsert: true }
+  );
+
+  // Master Delivery Rider Profile (Approved & Active)
+  await DeliveryRiderModel.findOneAndUpdate(
+    { riderId: 'rdr_master_9999' },
+    {
+      riderId: 'rdr_master_9999',
+      userId: masterUser.userId,
+      fullName: 'Devansh Sharma (Test Rider)',
+      phone: '9999999999',
+      vehicleType: 'motorcycle',
+      status: 'approved',
+      isOnline: true,
+      rating: 4.96,
+      totalDeliveries: 380,
+      currentZone: 'Indiranagar, Bengaluru',
+      currentLocation: {
+        type: 'Point',
+        coordinates: [77.6387, 12.9784],
+        updatedAt: new Date(),
+      },
     },
     { upsert: true }
   );
@@ -124,8 +234,12 @@ export async function seedDatabase() {
       phone: '9876543210',
       email: 'customer@ubssuper.com',
       fullName: 'Anas Rahmaan',
-      roles: ['CUSTOMER'],
+      roles: ['CUSTOMER', 'TAXI_DRIVER', 'DELIVERY_RIDER', 'PARTNER_OWNER'],
       currentRole: 'CUSTOMER',
+      partnerBusinessId: 'ptn_grocery_1',
+      taxiDriverProfileId: 'drv_ramesh_1',
+      deliveryRiderProfileId: 'rdr_vikram_1',
+      location: { type: 'Point', coordinates: [77.6387, 12.9784] },
       status: 'active',
     },
     { upsert: true, new: true }
@@ -611,8 +725,16 @@ export async function seedDatabase() {
     },
   ];
 
+  try {
+    await PropertyModel.collection.dropIndex('location_2dsphere');
+  } catch {}
+
   for (const p of sampleProperties) {
-    await PropertyModel.findOneAndUpdate({ propertyId: p.propertyId }, { $set: p }, { upsert: true });
+    try {
+      await PropertyModel.findOneAndUpdate({ propertyId: p.propertyId }, { $set: p }, { upsert: true });
+    } catch (e: any) {
+      logger.warn({ err: e.message }, `Property seed skip for ${p.propertyId}`);
+    }
   }
 
   logger.info('✅ UBSSuper Ecosystem database seeding completed successfully!');

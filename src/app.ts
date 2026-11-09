@@ -21,6 +21,7 @@ import contentRoutes from './modules/content/content.routes.js';
 import paymentRoutes from './modules/payments/payments.routes.js';
 import adminRoutes from './modules/admin/admin.routes.js';
 import realEstateRoutes from './modules/real-estate/real-estate.routes.js';
+import walletRoutes from './modules/wallet/wallet.routes.js';
 import { authenticate } from './middleware/auth.js';
 import { contentController } from './modules/content/content.controller.js';
 import { customersController } from './modules/customers/customers.controller.js';
@@ -135,6 +136,9 @@ app.get('/api/stores/nearby', (req, res) => contentController.getNearbyStores(re
 app.get('/api/v1/restaurants/nearby', (req, res) => contentController.getNearbyRestaurants(req, res));
 app.get('/api/restaurants/nearby', (req, res) => contentController.getNearbyRestaurants(req, res));
 app.use('/api/v1/payments', paymentRoutes);
+app.use('/api/v1/wallet', walletRoutes);
+app.use('/api/wallet', walletRoutes);
+app.use('/wallet', walletRoutes);
 app.use('/api/v1/admin', adminRoutes);
 app.use('/api/v1/real-estate', realEstateRoutes);
 app.use('/api/real-estate', realEstateRoutes);

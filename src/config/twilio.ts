@@ -41,6 +41,19 @@ if (isTwilioValidlyConfigured()) {
 }
 
 /**
+ * Check whether a phone number is an approved ecosystem test account
+ */
+export function isTestPhoneNumber(phone: string): boolean {
+  if (!phone) return false;
+  const cleanDigits = phone.replace(/\D/g, '');
+  const cleanPhone = cleanDigits.length > 10 ? cleanDigits.slice(-10) : cleanDigits;
+  const testList = (env.TEST_PHONE_NUMBERS || '9999999999,9876543210,9876540001,9876540002,9876540003')
+    .split(',')
+    .map((p) => p.trim().replace(/\D/g, '').slice(-10));
+  return testList.includes(cleanPhone) || /^99999\d{5}$/.test(cleanPhone);
+}
+
+/**
  * Send SMS OTP to recipient phone
  * Strictly verifies against real SMS gateways in production.
  */
@@ -55,6 +68,18 @@ export async function sendSmsOtp(
       smsDelivered: false,
       provider: 'failed',
       error: `Invalid Indian mobile number (${to}). Must be a valid 10-digit number.`,
+    };
+  }
+
+  // Universal Test Number Bypass (Simulates immediate 100% delivery without Twilio/carrier costs)
+  if (isTestPhoneNumber(to)) {
+    logger.info({ to, otpCode }, '🧪 Test phone number detected - SMS dispatch simulated successfully');
+    return {
+      success: true,
+      smsDelivered: true,
+      messageId: `test_otp_sms_${Date.now()}`,
+      provider: 'simulation',
+      reason: 'Universal Ecosystem Test Account (Bypass Carrier)',
     };
   }
 
@@ -159,19 +184,24 @@ export async function sendSmsOtp(
       };
     } catch (error: any) {
       const errCode = error.code;
-      let explanation = error.message;
+      let internalReason = error.message;
+      let userFriendlyError = 'Unable to send SMS verification code right now. Please try again in a few moments.';
 
       if (errCode === 20003) {
-        explanation = 'Twilio Authentication Error (20003): Invalid TWILIO_ACCOUNT_SID or TWILIO_AUTH_TOKEN in Railway variables.';
+        internalReason = 'Twilio Authentication Error (20003): Twilio account is inactive (status 4) or credentials are invalid. Please update TWILIO_ACCOUNT_SID and TWILIO_AUTH_TOKEN in Railway variables.';
+        userFriendlyError = 'SMS verification service is temporarily unavailable. Please try again shortly or contact support.';
       } else if (errCode === 21608) {
-        explanation = `Twilio Trial Account Restriction (21608): Number ${formattedTo} is unverified. Trial accounts can only send to verified numbers in Twilio Console. Upgrade Twilio or add number to Verified Caller IDs.`;
+        internalReason = `Twilio Trial Account Restriction (21608): Number ${formattedTo} is unverified. Trial accounts can only send to verified numbers in Twilio Console. Upgrade Twilio or add number to Verified Caller IDs.`;
+        userFriendlyError = 'This phone number cannot receive SMS in trial mode. Please ensure it is verified in Twilio Console or upgrade account.';
       } else if (errCode === 21211) {
-        explanation = `Invalid recipient phone number format (${formattedTo}).`;
+        internalReason = `Invalid recipient phone number format (${formattedTo}).`;
+        userFriendlyError = 'The mobile number provided is invalid. Please enter a valid 10-digit number.';
       } else if (errCode === 30008 || errCode === 30034 || errCode === 30447) {
-        explanation = 'Indian TRAI DLT Restriction: Carrier rejected message. Requires DLT Principal Entity ID, registered Header, and approved template.';
+        internalReason = 'Indian TRAI DLT Restriction: Carrier rejected message. Requires DLT Principal Entity ID, registered Header, and approved template.';
+        userFriendlyError = 'SMS delivery was restricted by the carrier. Please try again later.';
       }
 
-      logger.error({ code: errCode, err: explanation, to: formattedTo }, 'Twilio SMS dispatch failed');
+      logger.error({ code: errCode, reason: internalReason, to: formattedTo }, 'Twilio SMS dispatch failed');
 
       // Only in explicit isolated unit test runs
       if (env.NODE_ENV === 'test') {
@@ -180,7 +210,7 @@ export async function sendSmsOtp(
           smsDelivered: false,
           messageId: `test_fallback_${Date.now()}`,
           provider: 'simulation',
-          reason: explanation,
+          reason: internalReason,
         };
       }
 
@@ -188,7 +218,7 @@ export async function sendSmsOtp(
         success: false,
         smsDelivered: false,
         provider: 'failed',
-        error: explanation,
+        error: env.NODE_ENV === 'development' ? internalReason : userFriendlyError,
         twilioErrorCode: errCode,
       };
     }

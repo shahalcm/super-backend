@@ -1,6 +1,7 @@
 // src/modules/drivers/drivers.routes.ts
 import { Router } from 'express';
 import { driversController } from './drivers.controller.js';
+import { walletController } from '../wallet/wallet.controller.js';
 import { authenticate } from '../../middleware/auth.js';
 
 const router = Router();
@@ -34,5 +35,31 @@ router.post('/rides/:id/complete', (req, res) => driversController.completeRide(
 // Earnings & Payouts
 router.get('/earnings/summary', (req, res) => driversController.getEarningsSummary(req, res));
 router.post('/payouts/request', (req, res) => driversController.requestPayout(req, res));
+
+// Driver Wallet & Promotional Credit System
+router.get('/wallet', (req, res) => {
+  req.query.app = 'taxi';
+  req.query.accountType = 'taxi_driver';
+  return walletController.getBalance(req, res);
+});
+router.get('/wallet/recharge-offers', (req, res) => {
+  req.query.app = 'taxi';
+  req.query.userRole = 'TAXI_DRIVER';
+  return walletController.getOffers(req, res);
+});
+router.post('/wallet/recharge', (req, res) => {
+  req.body.app = 'taxi';
+  req.body.accountType = 'taxi_driver';
+  return walletController.createRechargeOrder(req, res);
+});
+router.post('/wallet/recharge/verify', (req, res) => {
+  req.body.app = 'taxi';
+  req.body.accountType = 'taxi_driver';
+  return walletController.verifyRechargePayment(req, res);
+});
+router.get('/wallet/transactions', (req, res) => {
+  req.query.app = 'taxi';
+  return walletController.getTransactions(req, res);
+});
 
 export default router;

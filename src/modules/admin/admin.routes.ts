@@ -53,4 +53,15 @@ router.get('/subscriptions', (req, res) => adminController.getSubscriptions(req,
 // 10. Audit Logs
 router.get('/audit-logs', (req, res) => adminController.getAuditLogs(req, res));
 
+// 11. Recharge Offers & Pricing Management
+router.get('/recharge-offers', (req, res) => adminController.getRechargeOffers(req, res));
+router.post('/recharge-offers', (req, res) => adminController.createRechargeOffer(req, res));
+router.put('/recharge-offers/:id', (req, res) => adminController.updateRechargeOffer(req, res));
+router.patch('/recharge-offers/:id', (req, res) => adminController.updateRechargeOffer(req, res));
+router.patch('/recharge-offers/:id/status', (req, res) => adminController.updateRechargeOfferStatus(req, res));
+
+// 12. Wallet Ledger Transactions & Analytics
+router.get('/wallet/transactions', (req, res) => adminController.getWalletTransactions(req, res));
+router.get('/wallet/analytics', (req, res) => adminController.getWalletAnalytics(req, res));
+
 export default router;

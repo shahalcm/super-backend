@@ -2,7 +2,7 @@
 import { z } from 'zod';
 
 export const sendOtpSchema = z.object({
-  phone: z.string().min(8, 'Phone number must be at least 8 digits').max(15),
+  phone: z.string().min(8, 'Phone number must be at least 8 digits').max(20),
   countryCode: z.string().default('+91'),
   role: z
     .enum([
@@ -18,7 +18,7 @@ export const sendOtpSchema = z.object({
 });
 
 export const verifyOtpSchema = z.object({
-  phone: z.string().min(8).max(15),
+  phone: z.string().min(8).max(20),
   otp: z.string().length(6, 'OTP must be exactly 6 digits'),
   role: z
     .enum([

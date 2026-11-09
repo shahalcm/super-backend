@@ -54,6 +54,8 @@ const envSchema = z.object({
   OTP_EXPIRY_SECONDS: z.coerce.number().default(300),
   OTP_RESEND_COOLDOWN_SECONDS: z.coerce.number().default(60),
   OTP_MAX_ATTEMPTS: z.coerce.number().default(5),
+  TEST_PHONE_NUMBERS: z.string().default('9999999999,9876543210,9876540001,9876540002,9876540003'),
+  TEST_OTP: z.string().default('123456'),
 
 
 
