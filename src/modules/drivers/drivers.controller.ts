@@ -162,6 +162,15 @@ export class DriversController {
     }
   }
 
+  async getEarningsHistory(req: Request, res: Response) {
+    try {
+      const result = await driversService.getEarningsHistory(req.user!.userId);
+      return sendSuccess(res, result, 'Earnings history retrieved');
+    } catch (error: any) {
+      return sendError(res, error.message, 400);
+    }
+  }
+
   async requestPayout(req: Request, res: Response) {
     try {
       const { amount } = req.body;

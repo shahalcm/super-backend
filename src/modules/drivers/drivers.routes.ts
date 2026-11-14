@@ -34,6 +34,7 @@ router.post('/rides/:id/complete', (req, res) => driversController.completeRide(
 
 // Earnings & Payouts
 router.get('/earnings/summary', (req, res) => driversController.getEarningsSummary(req, res));
+router.get('/earnings/history', (req, res) => driversController.getEarningsHistory(req, res));
 router.post('/payouts/request', (req, res) => driversController.requestPayout(req, res));
 
 // Driver Wallet & Promotional Credit System

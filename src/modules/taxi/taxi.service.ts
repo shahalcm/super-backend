@@ -1,12 +1,15 @@
 // src/modules/taxi/taxi.service.ts
 import mongoose from 'mongoose';
 import { v4 as uuidv4 } from 'uuid';
-import { TaxiRideModel, TaxiDriverModel, UserModel, TaxiPricingModel, DEFAULT_TAXI_PRICING, ITaxiPricing } from '../../database/index.js';
+import { TaxiRideModel, TaxiDriverModel, UserModel, TaxiPricingModel, DEFAULT_TAXI_PRICING, ITaxiPricing, PaymentModel } from '../../database/index.js';
 import { VehicleCategory } from '../../database/TaxiDriver.js';
 import { calculateHaversineDistanceKm, Coordinates } from '../../utils/geo.js';
 import { googleMapsService } from '../../services/googleMapsService.js';
 import { socketEvents } from '../../sockets/index.js';
 import { logger } from '../../utils/logger.js';
+import { platformRazorpay, verifyRazorpaySignature } from '../../config/razorpay.js';
+import { env } from '../../config/env.js';
+
 
 function isDbConnected(): boolean {
   return mongoose.connection && mongoose.connection.readyState === 1;
@@ -415,6 +418,25 @@ export class TaxiService {
     ride.cancellationReason = reason || 'Cancelled by passenger';
     await ride.save();
 
+    // If the ride was already paid via Razorpay, trigger a refund
+    if (ride.paymentStatus === 'captured' && ride.paymentMethod === 'razorpay') {
+      try {
+        const payment = await PaymentModel.findOne({ rideId: ride.rideId, status: 'captured' });
+        if (payment?.gatewayPaymentId) {
+          const { paymentsService } = await import('../payments/payments.service.js');
+          await paymentsService.processRefund({
+            paymentId: payment.gatewayPaymentId,
+            reason: reason || 'Ride cancelled by passenger before completion',
+            initiatedBy: userId,
+          });
+          ride.paymentStatus = 'refunded';
+          await ride.save();
+        }
+      } catch (refundErr: any) {
+        logger.warn({ err: refundErr.message, rideId }, 'Notice during ride refund processing');
+      }
+    }
+
     if (ride.driverId) {
       await TaxiDriverModel.findOneAndUpdate({ driverId: ride.driverId }, { isBusy: false });
     }
@@ -422,6 +444,139 @@ export class TaxiService {
     socketEvents.emitRideCancelled(rideId, reason);
 
     return ride;
+  }
+
+  /**
+   * Create Razorpay Payment Order for Taxi Ride
+   */
+  async createRidePaymentOrder(userId: string, rideId: string) {
+    const ride = await TaxiRideModel.findOne({ rideId });
+    if (!ride) throw new Error('Taxi ride not found');
+
+    if (ride.paymentStatus === 'captured') {
+      throw new Error('This taxi ride has already been paid.');
+    }
+
+    const totalFare = ride.fare?.totalFare;
+    if (!totalFare || totalFare <= 0) {
+      throw new Error('Invalid ride fare calculation.');
+    }
+
+    const amountInPaise = Math.round(totalFare * 100);
+    const receipt = `rcpt_ride_${ride.rideId.slice(-8)}`;
+
+    const rzpOrder = await platformRazorpay.orders.create({
+      amount: amountInPaise,
+      currency: 'INR',
+      receipt,
+      notes: {
+        rideId: ride.rideId,
+        customerId: userId,
+        type: 'TAXI_RIDE',
+      },
+    });
+
+    const transactionId = `TXN-${uuidv4().slice(0, 10).toUpperCase()}`;
+
+    if (isDbConnected()) {
+      await PaymentModel.create({
+        transactionId,
+        rideId: ride.rideId,
+        customerId: userId,
+        customerName: ride.customerName,
+        app: 'taxi',
+        serviceCategory: 'taxi_ride',
+        gateway: 'razorpay',
+        gatewayOrderId: rzpOrder.id,
+        amount: amountInPaise,
+        majorAmount: totalFare,
+        currency: 'INR',
+        status: 'pending',
+      });
+    }
+
+    return {
+      orderId: rzpOrder.id,
+      razorpayOrderId: rzpOrder.id,
+      rideId: ride.rideId,
+      amount: totalFare,
+      amountInPaise,
+      currency: 'INR',
+      keyId: env.RAZORPAY_KEY_ID,
+      transactionId,
+    };
+  }
+
+  /**
+   * Verify Razorpay Payment for Taxi Ride
+   */
+  async verifyRidePayment(
+    userId: string,
+    rideId: string,
+    data: { orderId: string; paymentId: string; signature: string }
+  ) {
+    const ride = await TaxiRideModel.findOne({ rideId });
+    if (!ride) throw new Error('Taxi ride not found');
+
+    if (ride.paymentStatus === 'captured') {
+      return { success: true, message: 'Ride payment already verified', ride };
+    }
+
+    // Cryptographic HMAC-SHA256 verification
+    const isValid = verifyRazorpaySignature(data.orderId, data.paymentId, data.signature, env.RAZORPAY_KEY_SECRET);
+    if (!isValid) {
+      throw new Error('Cryptographic signature verification failed for ride payment.');
+    }
+
+    ride.paymentStatus = 'captured';
+    ride.paymentMethod = 'razorpay';
+    await ride.save();
+
+    const commission = Math.round(ride.fare.totalFare * 0.15); // 15% platform commission
+    const driverEarnings = ride.fare.totalFare - commission;
+
+    if (isDbConnected()) {
+      await PaymentModel.findOneAndUpdate(
+        { $or: [{ gatewayOrderId: data.orderId }, { rideId: ride.rideId }] },
+        {
+          gatewayPaymentId: data.paymentId,
+          gatewaySignature: data.signature,
+          status: 'captured',
+          platformCommission: commission,
+          driverPayable: driverEarnings,
+          capturedAt: new Date(),
+          reconciliationStatus: 'reconciled',
+        },
+        { upsert: true }
+      );
+
+      // Settle driver earnings if driver assigned
+      if (ride.driverId) {
+        await TaxiDriverModel.findOneAndUpdate(
+          { driverId: ride.driverId },
+          {
+            $inc: {
+              totalEarnings: driverEarnings,
+              commissionPaid: commission,
+              outstandingPayout: driverEarnings,
+            },
+          }
+        );
+      }
+    }
+
+    socketEvents.emitRideCompleted(ride.rideId, {
+      rideId: ride.rideId,
+      status: ride.status,
+      paymentStatus: 'captured',
+      finalFare: ride.fare.totalFare,
+    });
+
+    return {
+      success: true,
+      message: 'Taxi ride payment cryptographically verified and captured',
+      ride,
+    };
   }
 }
 

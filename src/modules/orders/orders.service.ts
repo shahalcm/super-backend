@@ -1,5 +1,6 @@
 // src/modules/orders/orders.service.ts
 import { v4 as uuidv4 } from 'uuid';
+import Razorpay from 'razorpay';
 import {
   OrderModel,
   PaymentModel,
@@ -8,10 +9,12 @@ import {
   DeliveryModel,
   GroceryProductModel,
   PartnerBusinessModel,
+  PartnerIntegrationModel,
   IOrderItem,
 } from '../../database/index.js';
 import { platformRazorpay, verifyRazorpaySignature } from '../../config/razorpay.js';
 import { calculateDeliveryFee } from '../../utils/geo.js';
+import { decryptSecret } from '../../utils/crypto.js';
 import { env } from '../../config/env.js';
 import { logger } from '../../utils/logger.js';
 import mongoose from 'mongoose';
@@ -102,31 +105,46 @@ export class OrdersService {
     }
 
     // 2. Prevent Duplicate Rapid Orders (Idempotency Check within 30 seconds)
+    let recentOrder: any = null;
     if (isDbConnected) {
-      const recentOrder = await OrderModel.findOne({
+      recentOrder = await OrderModel.findOne({
         customerId: userId,
         paymentStatus: 'pending',
         fulfillmentStatus: 'placed',
         createdAt: { $gte: new Date(Date.now() - 30 * 1000) },
       });
-
-      if (recentOrder && recentOrder.items.length === validatedItems.length) {
-        const isExactMatch = recentOrder.items.every((it, idx) => it.id === validatedItems[idx]?.id);
-        if (isExactMatch) {
-          logger.info({ orderId: recentOrder.orderId }, 'Duplicate rapid checkout intercepted. Returning active pending order.');
-          let rzpOrder = null;
-          if (recentOrder.paymentMethod === 'razorpay') {
-            rzpOrder = {
-              id: `rzp_ord_${recentOrder.orderId}`,
-              orderId: recentOrder.orderId,
-              amount: recentOrder.totalAmount,
-              amountInPaise: Math.round(recentOrder.totalAmount * 100),
-              currency: 'INR',
-              keyId: env.RAZORPAY_KEY_ID,
-            };
-          }
-          return { order: recentOrder, razorpayOrder: rzpOrder };
+    } else {
+      const thirtySecAgo = Date.now() - 30 * 1000;
+      for (const ord of memoryOrders.values()) {
+        const ordTime = ord.createdAt ? new Date(ord.createdAt).getTime() : Date.now();
+        if (
+          ord.customerId === userId &&
+          ord.paymentStatus === 'pending' &&
+          ord.fulfillmentStatus === 'placed' &&
+          ordTime >= thirtySecAgo
+        ) {
+          recentOrder = ord;
+          break;
         }
+      }
+    }
+
+    if (recentOrder && recentOrder.items.length === validatedItems.length) {
+      const isExactMatch = recentOrder.items.every((it: any, idx: number) => it.id === validatedItems[idx]?.id);
+      if (isExactMatch) {
+        logger.info({ orderId: recentOrder.orderId }, 'Duplicate rapid checkout intercepted. Returning active pending order.');
+        let rzpOrder = null;
+        if (recentOrder.paymentMethod === 'razorpay') {
+          rzpOrder = {
+            id: `rzp_ord_${recentOrder.orderId}`,
+            orderId: recentOrder.orderId,
+            amount: recentOrder.totalAmount,
+            amountInPaise: Math.round(recentOrder.totalAmount * 100),
+            currency: 'INR',
+            keyId: env.RAZORPAY_KEY_ID,
+          };
+        }
+        return { order: recentOrder, razorpayOrder: rzpOrder };
       }
     }
 
@@ -222,6 +240,8 @@ export class OrdersService {
           note: 'Order placed by customer',
         },
       ],
+      createdAt: new Date(),
+      updatedAt: new Date(),
     };
 
     let order: any = orderData;
@@ -235,18 +255,61 @@ export class OrdersService {
       }
     }
 
-    // 8. Create Razorpay Payment Order
+    // 8. Create Razorpay Payment Order (using Partner's custom gateway if configured)
     let razorpayOrder = null;
     if (data.paymentMethod === 'razorpay') {
       const amountInPaise = Math.round(totalAmount * 100);
+      let rzpClient: any = platformRazorpay;
+      let activeKeyId = env.RAZORPAY_KEY_ID;
+
+      // Check if the shop/partner has connected their custom Razorpay account
+      if (detectedPartnerId) {
+        try {
+          const partnerIntegration = await PartnerIntegrationModel.findOne({
+            partnerId: detectedPartnerId,
+            provider: 'razorpay',
+            status: 'connected',
+          });
+
+          if (
+            partnerIntegration?.encryptedCredentials?.keyId &&
+            partnerIntegration.encryptedCredentials.encryptedSecret &&
+            partnerIntegration.encryptedCredentials.iv &&
+            partnerIntegration.encryptedCredentials.tag
+          ) {
+            const decryptedSecret = decryptSecret({
+              encrypted: partnerIntegration.encryptedCredentials.encryptedSecret,
+              iv: partnerIntegration.encryptedCredentials.iv,
+              tag: partnerIntegration.encryptedCredentials.tag,
+            });
+
+            rzpClient = new Razorpay({
+              key_id: partnerIntegration.encryptedCredentials.keyId,
+              key_secret: decryptedSecret,
+            });
+            activeKeyId = partnerIntegration.encryptedCredentials.keyId;
+            logger.info(
+              { partnerId: detectedPartnerId, keyId: activeKeyId },
+              'Using Merchant Partner Razorpay gateway for shop checkout'
+            );
+          }
+        } catch (partnerErr: any) {
+          logger.warn(
+            { error: partnerErr.message, partnerId: detectedPartnerId },
+            'Failed to load partner Razorpay keys, falling back to platform gateway'
+          );
+        }
+      }
+
       try {
-        const rzpOrder = await platformRazorpay.orders.create({
+        const rzpOrder = await rzpClient.orders.create({
           amount: amountInPaise,
           currency: 'INR',
           receipt: `rcpt_${order.orderId}`,
           notes: {
             orderId: order.orderId,
             customerId: userId,
+            partnerId: detectedPartnerId || '',
           },
         });
 
@@ -256,7 +319,7 @@ export class OrdersService {
           amount: totalAmount,
           amountInPaise,
           currency: 'INR',
-          keyId: env.RAZORPAY_KEY_ID,
+          keyId: activeKeyId,
         };
       } catch (err: any) {
         logger.warn({ error: err.message }, 'Razorpay live order create notice: using standard order token');
@@ -266,7 +329,7 @@ export class OrdersService {
           amount: totalAmount,
           amountInPaise,
           currency: 'INR',
-          keyId: env.RAZORPAY_KEY_ID,
+          keyId: activeKeyId,
         };
       }
 
@@ -336,12 +399,60 @@ export class OrdersService {
     const rzpPaymentId = data.razorpayPaymentId || (data as any).razorpay_payment_id;
     const rzpSignature = data.razorpaySignature || (data as any).razorpay_signature;
 
+    if (!rzpOrderId || !rzpPaymentId || !rzpSignature) {
+      throw new Error('Missing payment verification details: razorpayOrderId, razorpayPaymentId, and razorpaySignature are required.');
+    }
+
+    if (isDbConnected) {
+      const existingPayment = await PaymentModel.findOne({ orderId: order.orderId });
+      if (existingPayment?.gatewayOrderId && existingPayment.gatewayOrderId !== rzpOrderId) {
+        throw new Error('Mismatched Razorpay Order ID. Tampering detected.');
+      }
+    }
+
+
     // Cryptographic HMAC-SHA256 Signature Verification
-    const isValid = verifyRazorpaySignature(
+    // Check if the order was paid via the partner's custom Razorpay account
+    let verificationSecret = env.RAZORPAY_KEY_SECRET;
+    if (order.partnerId) {
+      try {
+        const partnerIntegration = await PartnerIntegrationModel.findOne({
+          partnerId: order.partnerId,
+          provider: 'razorpay',
+          status: 'connected',
+        });
+        if (
+          partnerIntegration?.encryptedCredentials?.encryptedSecret &&
+          partnerIntegration.encryptedCredentials.iv &&
+          partnerIntegration.encryptedCredentials.tag
+        ) {
+          verificationSecret = decryptSecret({
+            encrypted: partnerIntegration.encryptedCredentials.encryptedSecret,
+            iv: partnerIntegration.encryptedCredentials.iv,
+            tag: partnerIntegration.encryptedCredentials.tag,
+          });
+        }
+      } catch (secErr) {
+        // Fallback to platform secret
+      }
+    }
+
+    let isValid = verifyRazorpaySignature(
       rzpOrderId,
       rzpPaymentId,
-      rzpSignature
+      rzpSignature,
+      verificationSecret
     );
+
+    // Fallback check against platform secret (e.g. if test keys or gateway fallback occurred)
+    if (!isValid && verificationSecret !== env.RAZORPAY_KEY_SECRET) {
+      isValid = verifyRazorpaySignature(
+        rzpOrderId,
+        rzpPaymentId,
+        rzpSignature,
+        env.RAZORPAY_KEY_SECRET
+      );
+    }
 
     if (!isValid) {
       throw new Error('Payment signature verification failed. Authentication compromised or invalid signature.');
@@ -533,6 +644,24 @@ export class OrdersService {
       throw new Error(`Order cannot be cancelled in status: ${order.fulfillmentStatus}`);
     }
 
+    // If order was already paid via Razorpay, trigger refund processing
+    if (order.paymentStatus === 'captured' && order.paymentMethod === 'razorpay') {
+      try {
+        const payment = await PaymentModel.findOne({ orderId: order.orderId, status: 'captured' });
+        if (payment && payment.gatewayPaymentId) {
+          const { paymentsService } = await import('../payments/payments.service.js');
+          await paymentsService.processRefund({
+            paymentId: payment.gatewayPaymentId,
+            reason: reason || 'Customer cancelled order before fulfillment',
+            initiatedBy: userId,
+          });
+          order.paymentStatus = 'refunded';
+        }
+      } catch (refundErr: any) {
+        logger.warn({ err: refundErr.message, orderId }, 'Notice during order refund processing');
+      }
+    }
+
     order.fulfillmentStatus = 'cancelled';
     order.timeline.push({
       status: 'cancelled',
@@ -542,6 +671,66 @@ export class OrdersService {
     await order.save();
 
     return order;
+  }
+
+  async markOrderCaptured(orderId: string, paymentId?: string) {
+    const isDbConnected = mongoose.connection.readyState === 1;
+    if (isDbConnected) {
+      await OrderModel.findOneAndUpdate(
+        { orderId },
+        {
+          paymentStatus: 'captured',
+          fulfillmentStatus: 'confirmed',
+          $push: {
+            timeline: {
+              status: 'confirmed',
+              timestamp: new Date(),
+              note: `Payment confirmed via Razorpay (${paymentId || 'gateway'})`,
+            },
+          },
+        }
+      );
+    }
+    const mem = memoryOrders.get(orderId);
+    if (mem) {
+      mem.paymentStatus = 'captured';
+      mem.fulfillmentStatus = 'confirmed';
+      if (!mem.timeline) mem.timeline = [];
+      mem.timeline.push({
+        status: 'confirmed',
+        timestamp: new Date(),
+        note: `Payment confirmed via Razorpay (${paymentId || 'gateway'})`,
+      });
+    }
+  }
+
+  async markOrderFailed(orderId: string, reason?: string) {
+    const isDbConnected = mongoose.connection.readyState === 1;
+    if (isDbConnected) {
+      await OrderModel.findOneAndUpdate(
+        { orderId },
+        {
+          paymentStatus: 'failed',
+          $push: {
+            timeline: {
+              status: 'failed',
+              timestamp: new Date(),
+              note: `Payment failed: ${reason || 'Transaction unsuccessful'}`,
+            },
+          },
+        }
+      );
+    }
+    const mem = memoryOrders.get(orderId);
+    if (mem) {
+      mem.paymentStatus = 'failed';
+      if (!mem.timeline) mem.timeline = [];
+      mem.timeline.push({
+        status: 'failed',
+        timestamp: new Date(),
+        note: `Payment failed: ${reason || 'Transaction unsuccessful'}`,
+      });
+    }
   }
 }
 

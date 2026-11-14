@@ -207,9 +207,10 @@ export class DeliveryService {
       await rider.save();
     }
 
-    await OrderModel.findOneAndUpdate(
-      { orderId: delivery.orderId },
-      {
+    // Check payment status: Handle COD vs Online Payment
+    const order = await OrderModel.findOne({ orderId: delivery.orderId });
+    if (order) {
+      const updateFields: any = {
         fulfillmentStatus: 'delivered',
         $push: {
           timeline: {
@@ -218,8 +219,14 @@ export class DeliveryService {
             note: 'Order delivered successfully to recipient',
           },
         },
+      };
+
+      if (order.paymentMethod === 'cash') {
+        updateFields.paymentStatus = 'captured';
       }
-    );
+
+      await OrderModel.findOneAndUpdate({ orderId: delivery.orderId }, updateFields);
+    }
 
     return delivery;
   }

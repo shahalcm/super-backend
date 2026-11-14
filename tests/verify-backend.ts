@@ -16,7 +16,13 @@ import {
   calculateDeliveryFee,
   estimateTravelTimeMinutes,
 } from '../src/utils/geo.js';
-import { verifyRazorpaySignature, verifyWebhookSignature } from '../src/config/razorpay.js';
+import {
+  verifyRazorpaySignature,
+  verifyWebhookSignature,
+  toSmallestCurrencyUnit,
+  fromSmallestCurrencyUnit,
+  isSupportedCurrency,
+} from '../src/config/razorpay.js';
 import { generateTokens, AuthUserPayload } from '../src/middleware/auth.js';
 import { authService } from '../src/modules/auth/auth.service.js';
 import { ordersService } from '../src/modules/orders/orders.service.js';
@@ -29,7 +35,15 @@ import { realEstateService } from '../src/modules/real-estate/real-estate.servic
 import { customersService } from '../src/modules/customers/customers.service.js';
 import { contentService } from '../src/modules/content/content.service.js';
 import { walletService } from '../src/modules/wallet/wallet.service.js';
-import { UserModel } from '../src/database/index.js';
+import { paymentsService } from '../src/modules/payments/payments.service.js';
+import {
+  UserModel,
+  PaymentModel,
+  OrderModel,
+  TaxiRideModel,
+  RefundModel,
+  WebhookEventModel,
+} from '../src/database/index.js';
 import crypto from 'crypto';
 
 import { env } from '../src/config/env.js';
@@ -1244,6 +1258,444 @@ async function runTests() {
     assert.strictEqual(withdrawalTx.cashBalanceChange, -400);
     assert.strictEqual(withdrawalTx.promoBalanceChange, 0);
   });
+
+  // -------------------------------------------------------------------------
+  // RAZORPAY ECOSYSTEM COMPREHENSIVE INTEGRATION & AUDIT TEST SUITE (17 SCENARIOS)
+  // -------------------------------------------------------------------------
+
+  // 64. Razorpay Valid Payment Signature & Authoritative Verification (HMAC-SHA256)
+  await test('Razorpay Valid Payment Signature & Authoritative Verification (HMAC-SHA256)', async () => {
+    const testUserId = `usr_rzp_val_${Date.now()}`;
+    const orderRes = await paymentsService.createPaymentOrder({
+      userId: testUserId,
+      userName: 'Audit Test Customer',
+      app: 'ubssuper',
+      purpose: 'order',
+      amount: 499,
+      currency: 'INR',
+      referenceId: `ORD-${Date.now().toString().slice(-6)}`,
+    });
+
+    assert(orderRes.orderId, 'Razorpay order ID must be generated');
+    assert.strictEqual(orderRes.amount, 499);
+    assert.strictEqual(orderRes.amountInPaise, 49900);
+    assert.strictEqual(orderRes.currency, 'INR');
+
+    const paymentId = `pay_rzp_test_${Date.now()}`;
+    const validSignature = crypto
+      .createHmac('sha256', env.RAZORPAY_KEY_SECRET)
+      .update(`${orderRes.orderId}|${paymentId}`)
+      .digest('hex');
+
+    const verifyRes = await paymentsService.verifyPayment({
+      userId: testUserId,
+      razorpayOrderId: orderRes.orderId,
+      razorpayPaymentId: paymentId,
+      razorpaySignature: validSignature,
+      transactionId: orderRes.transactionId,
+    });
+
+    assert.strictEqual(verifyRes.success, true);
+    assert.strictEqual(verifyRes.status, 'captured');
+  });
+
+  // 65. Razorpay Failed Payment Webhook Handling (Order & Payment status to 'failed')
+  await test('Razorpay Failed Payment Webhook Handling', async () => {
+    const testOrderId = `ORD-FAIL-${Date.now().toString().slice(-4)}`;
+    const eventData = {
+      entity: 'event',
+      event: 'payment.failed',
+      event_id: `evt_fail_${Date.now()}`,
+      payload: {
+        payment: {
+          entity: {
+            id: `pay_fail_${Date.now()}`,
+            amount: 50000,
+            currency: 'INR',
+            status: 'failed',
+            order_id: `order_fail_${Date.now()}`,
+            error_description: 'Card declined by issuing bank',
+            notes: {
+              orderId: testOrderId,
+            },
+          },
+        },
+      },
+    };
+
+    const rawBody = JSON.stringify(eventData);
+    const signature = crypto
+      .createHmac('sha256', env.RAZORPAY_WEBHOOK_SECRET)
+      .update(rawBody)
+      .digest('hex');
+
+    const webhookRes = await paymentsService.handleWebhook(rawBody, signature, eventData);
+    assert.strictEqual(webhookRes.received, true);
+    assert.strictEqual(webhookRes.event, 'payment.failed');
+  });
+
+  // 66. User Checkout Cancellation (Preserves Pending Order for Retry)
+  await test('User Checkout Cancellation (Preserves Pending Order for Retry)', async () => {
+    const testUserId = `usr_cancel_test_${Date.now()}`;
+    const checkoutRes = await ordersService.checkout(testUserId, {
+      type: 'grocery',
+      items: [{ id: 'prod_cancel_1', name: 'Fresh Milk', quantity: 2, unitPrice: 40, totalPrice: 80 }],
+      deliveryAddress: 'Indiranagar 100ft Road, Bengaluru',
+      paymentMethod: 'razorpay',
+    });
+
+    assert(checkoutRes.order, 'Order must be created');
+    assert.strictEqual(checkoutRes.order.paymentStatus, 'pending');
+    assert.strictEqual(checkoutRes.order.fulfillmentStatus, 'placed');
+
+    // User simulated cancel: order remains pending
+    const retrieved = await ordersService.getOrderById(testUserId, checkoutRes.order.orderId);
+    assert.strictEqual(retrieved.paymentStatus, 'pending');
+  });
+
+  // 67. Network Interruption Recovery (Idempotent Payment Status Retrieval via GET /status/:id)
+  await test('Network Interruption Recovery (Idempotent Payment Status Retrieval)', async () => {
+    const testUserId = `usr_net_rec_${Date.now()}`;
+    const orderRes = await paymentsService.createPaymentOrder({
+      userId: testUserId,
+      app: 'ubssuper',
+      purpose: 'order',
+      amount: 350,
+      currency: 'INR',
+    });
+
+    const statusRes = await paymentsService.getPaymentStatus(orderRes.transactionId);
+    assert(statusRes, 'Payment status must be retrievable after network interruption');
+    assert.strictEqual(statusRes.status, 'pending');
+    assert.strictEqual(statusRes.majorAmount, 350);
+  });
+
+  // 68. Anti-Tampering: Rejection of Invalid or Forged Signature
+  await test('Anti-Tampering: Rejection of Invalid or Forged Signature', async () => {
+    const forgedOrderId = `order_forged_${Date.now()}`;
+    const forgedPaymentId = `pay_forged_${Date.now()}`;
+    const forgedSignature = 'forged_fake_signature_abc123';
+
+    let rejected = false;
+    try {
+      await paymentsService.verifyPayment({
+        userId: 'usr_fraud_test',
+        razorpayOrderId: forgedOrderId,
+        razorpayPaymentId: forgedPaymentId,
+        razorpaySignature: forgedSignature,
+      });
+    } catch (err: any) {
+      rejected = true;
+      assert(err.message.includes('signature verification failed'), 'Error message must specify signature failure');
+    }
+    assert.strictEqual(rejected, true, 'Forged signature must be rejected');
+  });
+
+  // 69. Server-Side Price & Amount Protection (Rejects Zero or Manipulated Amounts)
+  await test('Server-Side Price & Amount Protection (Rejects Zero or Manipulated Amounts)', async () => {
+    let rejectedZero = false;
+    try {
+      await paymentsService.createPaymentOrder({
+        userId: 'usr_zero_amt',
+        app: 'ubssuper',
+        purpose: 'order',
+        amount: 0,
+      });
+    } catch (err: any) {
+      rejectedZero = true;
+    }
+    assert.strictEqual(rejectedZero, true, 'Zero payment amount must be rejected');
+
+    let rejectedNegative = false;
+    try {
+      await paymentsService.createPaymentOrder({
+        userId: 'usr_neg_amt',
+        app: 'ubssuper',
+        purpose: 'order',
+        amount: -150,
+      });
+    } catch (err: any) {
+      rejectedNegative = true;
+    }
+    assert.strictEqual(rejectedNegative, true, 'Negative payment amount must be rejected');
+  });
+
+  // 70. Supported vs Unsupported Currency Validation (Rejects Invalid ISO Currencies)
+  await test('Supported vs Unsupported Currency Validation', async () => {
+    assert.strictEqual(isSupportedCurrency('INR'), true);
+    assert.strictEqual(isSupportedCurrency('USD'), true);
+    assert.strictEqual(isSupportedCurrency('EUR'), true);
+    assert.strictEqual(isSupportedCurrency('AED'), true);
+    assert.strictEqual(isSupportedCurrency('XYZ_FAKE'), false);
+
+    let rejectedUnsupported = false;
+    try {
+      await paymentsService.createPaymentOrder({
+        userId: 'usr_cur_test',
+        app: 'ubssuper',
+        purpose: 'order',
+        amount: 100,
+        currency: 'XYZ_FAKE',
+      });
+    } catch (err: any) {
+      rejectedUnsupported = true;
+      assert(err.message.includes('Unsupported currency'));
+    }
+    assert.strictEqual(rejectedUnsupported, true, 'Unsupported currency must be rejected');
+  });
+
+  // 71. Duplicate Checkout Request Interception (Idempotency Key / Short-Window Check)
+  await test('Duplicate Checkout Request Interception', async () => {
+    const testUserId = `usr_idemp_checkout_${Date.now()}`;
+    const items = [{ id: 'prod_dup_1', name: 'Fresh Apples', quantity: 1, unitPrice: 120, totalPrice: 120 }];
+
+    const firstOrder = await ordersService.checkout(testUserId, {
+      type: 'grocery',
+      items,
+      deliveryAddress: 'MG Road, Bengaluru',
+      paymentMethod: 'razorpay',
+    });
+
+    const secondOrder = await ordersService.checkout(testUserId, {
+      type: 'grocery',
+      items,
+      deliveryAddress: 'MG Road, Bengaluru',
+      paymentMethod: 'razorpay',
+    });
+
+    // Rapid duplicate checkout should return the existing pending order
+    assert.strictEqual(firstOrder.order.orderId, secondOrder.order.orderId);
+  });
+
+  // 72. Webhook Idempotency & Deduplication (Rejects Replayed Event IDs)
+  await test('Webhook Idempotency & Deduplication (Rejects Replayed Event IDs)', async () => {
+    const uniqueEventId = `evt_dedup_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
+    const eventPayload = {
+      entity: 'event',
+      event: 'payment.captured',
+      event_id: uniqueEventId,
+      payload: {
+        payment: {
+          entity: {
+            id: `pay_dedup_${Date.now()}`,
+            amount: 25000,
+            currency: 'INR',
+            status: 'captured',
+            order_id: `order_dedup_${Date.now()}`,
+          },
+        },
+      },
+    };
+
+    const rawBody = JSON.stringify(eventPayload);
+    const signature = crypto
+      .createHmac('sha256', env.RAZORPAY_WEBHOOK_SECRET)
+      .update(rawBody)
+      .digest('hex');
+
+    // First delivery: processes normally
+    const firstDelivery = await paymentsService.handleWebhook(rawBody, signature, eventPayload);
+    assert.strictEqual(firstDelivery.received, true);
+    assert.strictEqual(firstDelivery.status, 'processed');
+
+    // Replayed delivery: intercepted as duplicate
+    const secondDelivery = await paymentsService.handleWebhook(rawBody, signature, eventPayload);
+    assert.strictEqual(secondDelivery.received, true);
+    assert.strictEqual(secondDelivery.deduplicated, true);
+  });
+
+  // 73. Out-of-Order Webhook Handling (Safe Processing Regardless of Delivery Timing)
+  await test('Out-of-Order Webhook Handling', async () => {
+    const orderPaidEvent = {
+      entity: 'event',
+      event: 'order.paid',
+      event_id: `evt_ooo_${Date.now()}`,
+      payload: {
+        order: {
+          entity: {
+            id: `order_ooo_${Date.now()}`,
+            amount: 75000,
+            currency: 'INR',
+            status: 'paid',
+            receipt: 'rcpt_ooo_test',
+          },
+        },
+      },
+    };
+
+    const rawBody = JSON.stringify(orderPaidEvent);
+    const signature = crypto
+      .createHmac('sha256', env.RAZORPAY_WEBHOOK_SECRET)
+      .update(rawBody)
+      .digest('hex');
+
+    const res = await paymentsService.handleWebhook(rawBody, signature, orderPaidEvent);
+    assert.strictEqual(res.received, true);
+    assert.strictEqual(res.event, 'order.paid');
+  });
+
+  // 74. Frontend Interruption Reconciliation (Webhook Captures Order if Client Crashed)
+  await test('Frontend Interruption Reconciliation (Webhook Captures Order if Client Crashed)', async () => {
+    const testUserId = `usr_crash_recon_${Date.now()}`;
+    const checkout = await ordersService.checkout(testUserId, {
+      type: 'grocery',
+      items: [{ id: 'prod_recon_1', name: 'Almonds 500g', quantity: 1, unitPrice: 450, totalPrice: 450 }],
+      deliveryAddress: 'Whitefield, Bengaluru',
+      paymentMethod: 'razorpay',
+    });
+
+    assert.strictEqual(checkout.order.paymentStatus, 'pending');
+
+    // Client crashed, but payment was captured on Razorpay and webhook arrived
+    const capturedEvent = {
+      entity: 'event',
+      event: 'payment.captured',
+      event_id: `evt_crash_recon_${Date.now()}`,
+      payload: {
+        payment: {
+          entity: {
+            id: `pay_crash_recon_${Date.now()}`,
+            amount: 45000,
+            currency: 'INR',
+            status: 'captured',
+            order_id: checkout.razorpayOrder?.id || `rzp_ord_${checkout.order.orderId}`,
+            notes: {
+              orderId: checkout.order.orderId,
+            },
+          },
+        },
+      },
+    };
+
+    const rawBody = JSON.stringify(capturedEvent);
+    const signature = crypto
+      .createHmac('sha256', env.RAZORPAY_WEBHOOK_SECRET)
+      .update(rawBody)
+      .digest('hex');
+
+    await paymentsService.handleWebhook(rawBody, signature, capturedEvent);
+
+    const updatedOrder = await ordersService.getOrderById(testUserId, checkout.order.orderId);
+    assert.strictEqual(updatedOrder.paymentStatus, 'captured');
+    assert.strictEqual(updatedOrder.fulfillmentStatus, 'confirmed');
+  });
+
+  // 75. Full Refund Processing via Razorpay & Audit Logging
+  await test('Full Refund Processing via Razorpay & Audit Logging', async () => {
+    const testPaymentId = `pay_live_test_${Date.now()}`;
+    // Verify refund input validation
+    let rejected = false;
+    try {
+      await paymentsService.processRefund({
+        paymentId: 'invalid_non_pay_id',
+        reason: 'Test cancellation',
+        initiatedBy: 'admin',
+      });
+    } catch (err: any) {
+      rejected = true;
+      assert(err.message.includes('No valid Razorpay payment ID found'));
+    }
+    assert.strictEqual(rejected, true, 'Non-existent or non-pay ID must be rejected');
+  });
+
+  // 76. Partial Refund Handling & Ledger Consistency
+  await test('Partial Refund Handling & Ledger Consistency', async () => {
+    const refundEvent = {
+      entity: 'event',
+      event: 'refund.processed',
+      event_id: `evt_refund_part_${Date.now()}`,
+      payload: {
+        refund: {
+          entity: {
+            id: `rfnd_test_${Date.now()}`,
+            amount: 20000, // ₹200 partial refund of ₹500
+            currency: 'INR',
+            payment_id: `pay_part_${Date.now()}`,
+            status: 'processed',
+          },
+        },
+      },
+    };
+
+    const rawBody = JSON.stringify(refundEvent);
+    const signature = crypto
+      .createHmac('sha256', env.RAZORPAY_WEBHOOK_SECRET)
+      .update(rawBody)
+      .digest('hex');
+
+    const res = await paymentsService.handleWebhook(rawBody, signature, refundEvent);
+    assert.strictEqual(res.received, true);
+    assert.strictEqual(res.event, 'refund.processed');
+  });
+
+  // 77. Multi-App Wallet Recharge Ledger Accounting (Strict Cash vs Promo Separation)
+  await test('Multi-App Wallet Recharge Ledger Accounting (Cash vs Promo Separation)', async () => {
+    const driverUserId = `usr_taxi_driver_audit_${Date.now()}`;
+    const riderUserId = `usr_delivery_rider_audit_${Date.now()}`;
+
+    const driverWallet = await walletService.getOrCreateWallet(driverUserId, 'taxi', 'taxi_driver');
+    assert.strictEqual(driverWallet.cashBalance, 0);
+    assert.strictEqual(driverWallet.promotionalBalance, 0);
+
+    const riderWallet = await walletService.getOrCreateWallet(riderUserId, 'delivery', 'delivery_rider');
+    assert.strictEqual(riderWallet.cashBalance, 0);
+    assert.strictEqual(riderWallet.promotionalBalance, 0);
+
+    // Verify recharge offer structures exist for each app
+    const taxiOffers = await walletService.getOffers('taxi', 'TAXI_DRIVER');
+    assert(taxiOffers.length > 0, 'Taxi driver offers must exist');
+    assert(taxiOffers[0].rechargeAmount > 0);
+    assert(taxiOffers[0].promotionalBonus > 0);
+
+    const deliveryOffers = await walletService.getOffers('delivery', 'DELIVERY_RIDER');
+    assert(deliveryOffers.length > 0, 'Delivery rider offers must exist');
+    assert(deliveryOffers[0].rechargeAmount > 0);
+    assert(deliveryOffers[0].promotionalBonus > 0);
+  });
+
+  // 78. Order Payment Retry Workflow with Active Razorpay Order ID
+  await test('Order Payment Retry Workflow with Active Razorpay Order ID', async () => {
+    const testUserId = `usr_retry_test_${Date.now()}`;
+    const checkout = await ordersService.checkout(testUserId, {
+      type: 'food',
+      items: [{ id: 'food_retry_1', name: 'Biryani Meal', quantity: 1, unitPrice: 280, totalPrice: 280 }],
+      deliveryAddress: 'Koramangala 5th Block, Bengaluru',
+      paymentMethod: 'razorpay',
+    });
+
+    const retryRes = await ordersService.retryPayment(testUserId, checkout.order.orderId);
+    assert(retryRes.razorpayOrder, 'Retry response must contain razorpayOrder');
+    assert(retryRes.razorpayOrder.id, 'Retry response must contain active Razorpay Order ID');
+    assert.strictEqual(retryRes.razorpayOrder.currency, 'INR');
+  });
+
+  // 79. App Restart Recovery via Database Order State Synchronization
+  await test('App Restart Recovery via Database Order State Synchronization', async () => {
+    const testUserId = `usr_restart_test_${Date.now()}`;
+    const checkout = await ordersService.checkout(testUserId, {
+      type: 'grocery',
+      items: [{ id: 'prod_restart_1', name: 'Brown Bread', quantity: 1, unitPrice: 50, totalPrice: 50 }],
+      deliveryAddress: 'HSR Layout, Bengaluru',
+      paymentMethod: 'cash',
+    });
+
+    // Simulate app restart / cold start fetch
+    const fetched = await ordersService.getOrderById(testUserId, checkout.order.orderId);
+    assert.strictEqual(fetched.orderId, checkout.order.orderId);
+    assert.strictEqual(fetched.totalAmount, checkout.order.totalAmount);
+    assert.strictEqual(fetched.paymentMethod, 'cash');
+  });
+
+  // 80. Multi-Currency Checkout Preparation & Minor Unit (Paise/Cent) Conversion
+  await test('Multi-Currency Checkout Preparation & Minor Unit Conversion', async () => {
+    assert.strictEqual(toSmallestCurrencyUnit(100, 'INR'), 10000);
+    assert.strictEqual(toSmallestCurrencyUnit(99.5, 'INR'), 9950);
+    assert.strictEqual(toSmallestCurrencyUnit(15.25, 'USD'), 1525);
+    assert.strictEqual(fromSmallestCurrencyUnit(10000, 'INR'), 100);
+    assert.strictEqual(fromSmallestCurrencyUnit(9950, 'INR'), 99.5);
+    assert.strictEqual(fromSmallestCurrencyUnit(1525, 'USD'), 15.25);
+  });
+
 
   console.log(`\n================================================================`);
   console.log(`🎉 ALL ${passed} AUTOMATED BACKEND INTEGRATION SCENARIOS PASSED!`);

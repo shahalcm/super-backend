@@ -8,6 +8,7 @@ import {
   ClinicDoctorModel,
   OrderModel,
   UserModel,
+  PaymentModel,
 } from '../../database/index.js';
 import { platformRazorpay, verifyRazorpaySignature } from '../../config/razorpay.js';
 import { encryptSecret, decryptSecret, maskSecret } from '../../utils/crypto.js';
@@ -235,6 +236,7 @@ export class PartnersService {
     if (!partner) throw new Error('Partner not found');
 
     const amountInPaise = partner.registrationFee.amount * 100; // e.g. 999 * 100 = 99900 paise
+    const transactionId = `TXN-${uuidv4().slice(0, 10).toUpperCase()}`;
 
     let orderId = `order_${uuidv4().slice(0, 14)}`;
 
@@ -244,17 +246,39 @@ export class PartnersService {
         currency: 'INR',
         receipt: `rcpt_reg_${partner.partnerId}`,
         notes: {
+          transactionId,
           partnerId: partner.partnerId,
           type: 'PARTNER_REGISTRATION_FEE',
         },
       });
       orderId = rzpOrder.id;
     } catch {
-      // In dev mode when offline or using test credentials, keep generated orderId
+      // In test mode when offline or using test credentials, keep generated orderId
     }
 
     partner.registrationFee.orderId = orderId;
     await partner.save();
+
+    if (mongoose.connection.readyState === 1) {
+      await PaymentModel.findOneAndUpdate(
+        { gatewayOrderId: orderId },
+        {
+          transactionId,
+          customerId: userId,
+          customerName: partner.businessName || partner.ownerName,
+          app: 'partner',
+          serviceCategory: 'partner_registration_fee',
+          gateway: 'razorpay',
+          gatewayOrderId: orderId,
+          amount: amountInPaise,
+          majorAmount: partner.registrationFee.amount,
+          currency: 'INR',
+          status: 'pending',
+          reconciliationStatus: 'pending_recon',
+        },
+        { upsert: true }
+      );
+    }
 
     return {
       orderId,
@@ -262,6 +286,7 @@ export class PartnersService {
       currency: partner.registrationFee.currency,
       keyId: process.env.RAZORPAY_KEY_ID || 'rzp_test_placeholder_key_id',
       businessName: partner.businessName,
+      transactionId,
     };
   }
 
@@ -269,18 +294,44 @@ export class PartnersService {
     const partner = await PartnerBusinessModel.findOne({ userId });
     if (!partner) throw new Error('Partner not found');
 
-    // Verify cryptographic HMAC signature
-    const isValid = verifyRazorpaySignature(data.orderId, data.paymentId, data.signature);
+    // Idempotency: if already paid, return early
+    if (partner.registrationFee?.isPaid) {
+      return {
+        success: true,
+        message: 'Registration onboarding fee is already paid and verified',
+        partner,
+      };
+    }
 
-    // In dev mode allow test signatures
-    if (!isValid && process.env.NODE_ENV === 'production') {
-      throw new Error('Cryptographic payment signature verification failed.');
+    // Verify orderId matches the registered order in database
+    if (partner.registrationFee.orderId && partner.registrationFee.orderId !== data.orderId) {
+      throw new Error('Mismatched Razorpay Order ID. Tampering detected.');
+    }
+
+    // Mandatory Cryptographic HMAC-SHA256 signature verification
+    const isValid = verifyRazorpaySignature(data.orderId, data.paymentId, data.signature);
+    if (!isValid) {
+      throw new Error('Cryptographic payment signature verification failed. Invalid or fraudulent signature.');
     }
 
     partner.registrationFee.isPaid = true;
     partner.registrationFee.paymentId = data.paymentId;
     partner.registrationFee.paidAt = new Date();
     await partner.save();
+
+    if (mongoose.connection.readyState === 1) {
+      await PaymentModel.findOneAndUpdate(
+        { $or: [{ gatewayOrderId: data.orderId }, { customerId: userId, serviceCategory: 'partner_registration_fee' }] },
+        {
+          gatewayPaymentId: data.paymentId,
+          gatewaySignature: data.signature,
+          status: 'captured',
+          capturedAt: new Date(),
+          reconciliationStatus: 'reconciled',
+        },
+        { upsert: true }
+      );
+    }
 
     return {
       success: true,

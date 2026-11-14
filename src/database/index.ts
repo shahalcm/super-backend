@@ -27,3 +27,5 @@ export * from './TaxiPricing.js';
 export * from './RechargeOffer.js';
 export * from './Wallet.js';
 export * from './WalletTransaction.js';
+export * from './WebhookEvent.js';
+

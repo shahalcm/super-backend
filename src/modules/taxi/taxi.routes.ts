@@ -24,4 +24,10 @@ router.get('/rides/:id', authenticate, (req, res) => taxiController.getRide(req,
 router.post('/ride/:id/cancel', authenticate, (req, res) => taxiController.cancelRide(req, res));
 router.post('/rides/:id/cancel', authenticate, (req, res) => taxiController.cancelRide(req, res));
 
+// Ride Razorpay Payment Endpoints
+router.post('/ride/:id/payment/create-order', authenticate, (req, res) => taxiController.createRidePayment(req, res));
+router.post('/rides/:id/payment/create-order', authenticate, (req, res) => taxiController.createRidePayment(req, res));
+router.post('/ride/:id/payment/verify', authenticate, (req, res) => taxiController.verifyRidePayment(req, res));
+router.post('/rides/:id/payment/verify', authenticate, (req, res) => taxiController.verifyRidePayment(req, res));
+
 export default router;

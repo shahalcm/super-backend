@@ -11,10 +11,11 @@ import {
   AuditLogModel,
 } from '../../database/index.js';
 import { platformRazorpay, verifyRazorpaySignature } from '../../config/razorpay.js';
+import { uploadImage } from '../../config/cloudinary.js';
 import { env } from '../../config/env.js';
 import { logger } from '../../utils/logger.js';
 
-// In-memory fallback stores for test sandbox / offline mode
+// In-memory stores for runtime session & test sandbox
 let memoryFeeConfig = {
   feature: 'real_estate_property_listing',
   amount: 50,
@@ -36,148 +37,9 @@ let memoryFeeConfig = {
   ],
 };
 
-const memoryProperties: any[] = [
-  {
-    propertyId: 'PR-10001',
-    title: '3 BHK Modern Luxury Villa in Manjeri',
-    description: 'Architect-designed luxury villa with modular kitchen, private lawn, solar power, and 2 covered car parks.',
-    propertyType: 'villa',
-    listingType: 'sale',
-    category: 'Residential',
-    price: 8500000,
-    location: 'Calicut Road, Manjeri, Malappuram',
-    address: 'Plot 14, Green Valley Enclave, Calicut Road',
-    city: 'Manjeri',
-    state: 'Kerala',
-    images: [
-      'https://images.unsplash.com/photo-1600596542815-ffad4c1539a9?auto=format&fit=crop&w=800&q=80',
-      'https://images.unsplash.com/photo-1600585154340-be6161a56a0c?auto=format&fit=crop&w=800&q=80',
-    ],
-    bedrooms: 3,
-    bathrooms: 3,
-    area: '2400 sq.ft',
-    amenities: ['Private Garden', 'Solar Power', 'Covered Parking', 'Borewell & KWA Water', '24x7 Security'],
-    contactName: 'Niyas Rahman',
-    contactPhone: '+91 98765 43210',
-    postedBy: 'Verified Builder',
-    userId: 'usr_manjeri_owner_1',
-    userName: 'Niyas Rahman',
-    listingFeeAmount: 50,
-    isPaid: true,
-    paymentId: 'PLP-10001',
-    status: 'approved',
-    approvalStatus: 'approved',
-    featured: true,
-    viewsCount: 42,
-    createdAt: new Date('2026-10-15'),
-  },
-  {
-    propertyId: 'PR-10002',
-    title: '2 BHK Waterfront Apartment in Kochi',
-    description: 'Spectacular lake-view premium apartment on Marine Drive with balcony sunset views and clubhouse amenities.',
-    propertyType: 'apartment',
-    listingType: 'rent',
-    category: 'Residential',
-    price: 24000,
-    location: 'Marine Drive, Ernakulam, Kochi',
-    address: 'Floor 11, Bayview Towers, Marine Drive',
-    city: 'Kochi',
-    state: 'Kerala',
-    images: [
-      'https://images.unsplash.com/photo-1545324418-cc1a3fa10c00?auto=format&fit=crop&w=800&q=80',
-      'https://images.unsplash.com/photo-1502672260266-1c1ef2d93688?auto=format&fit=crop&w=800&q=80',
-    ],
-    bedrooms: 2,
-    bathrooms: 2,
-    area: '1250 sq.ft',
-    amenities: ['Swimming Pool', 'Gym & Clubhouse', 'High-Speed Elevators', 'Piped Gas', 'Covered Parking'],
-    contactName: 'Anil Kumar',
-    contactPhone: '+91 98460 11223',
-    postedBy: 'Direct Owner',
-    userId: 'usr_kochi_owner_2',
-    userName: 'Anil Kumar',
-    listingFeeAmount: 50,
-    isPaid: true,
-    paymentId: 'PLP-10002',
-    status: 'approved',
-    approvalStatus: 'approved',
-    featured: true,
-    viewsCount: 68,
-    createdAt: new Date('2026-10-20'),
-  },
-  {
-    propertyId: 'PR-10003',
-    title: '4 BHK Traditional Malabar Manor in Kozhikode',
-    description: 'Heritage architectural estate with teak wood carvings, central courtyard (Nadumuttam), and 50-cent land area.',
-    propertyType: 'house',
-    listingType: 'sale',
-    category: 'Residential',
-    price: 14500000,
-    location: 'Kottuli, Kozhikode',
-    address: 'Manor Estate, Near Kottooli Wetland, Kozhikode',
-    city: 'Kozhikode',
-    state: 'Kerala',
-    images: [
-      'https://images.unsplash.com/photo-1613977257363-707ba9348227?auto=format&fit=crop&w=800&q=80',
-    ],
-    bedrooms: 4,
-    bathrooms: 4,
-    area: '3800 sq.ft',
-    amenities: ['Traditional Courtyard', 'Outhouse', 'Fruit Orchard', 'Well Water', 'Gated Compound'],
-    contactName: 'Faizal Kozhikode',
-    contactPhone: '+91 94471 99887',
-    postedBy: 'Direct Owner',
-    userId: 'usr_calicut_owner_3',
-    userName: 'Faizal Kozhikode',
-    listingFeeAmount: 50,
-    isPaid: true,
-    paymentId: 'PLP-10003',
-    status: 'approved',
-    approvalStatus: 'approved',
-    featured: false,
-    viewsCount: 29,
-    createdAt: new Date('2026-10-28'),
-  },
-];
-
-const memoryPayments: any[] = [
-  {
-    paymentId: 'PLP-10001',
-    userId: 'usr_manjeri_owner_1',
-    userName: 'Niyas Rahman',
-    userPhone: '+91 98765 43210',
-    propertyId: 'PR-10001',
-    propertyTitle: '3 BHK Modern Luxury Villa in Manjeri',
-    amount: 50,
-    amountInPaise: 5000,
-    currency: 'INR',
-    feeSnapshot: 50,
-    paymentProvider: 'razorpay',
-    razorpayOrderId: 'order_seed_10001',
-    razorpayPaymentId: 'pay_seed_10001',
-    status: 'paid',
-    createdAt: new Date('2026-10-15'),
-    paidAt: new Date('2026-10-15'),
-  },
-  {
-    paymentId: 'PLP-10002',
-    userId: 'usr_kochi_owner_2',
-    userName: 'Anil Kumar',
-    userPhone: '+91 98460 11223',
-    propertyId: 'PR-10002',
-    propertyTitle: '2 BHK Waterfront Apartment in Kochi',
-    amount: 50,
-    amountInPaise: 5000,
-    currency: 'INR',
-    feeSnapshot: 50,
-    paymentProvider: 'razorpay',
-    razorpayOrderId: 'order_seed_10002',
-    razorpayPaymentId: 'pay_seed_10002',
-    status: 'paid',
-    createdAt: new Date('2026-10-20'),
-    paidAt: new Date('2026-10-20'),
-  },
-];
+// No fake seed properties - only genuine user and partner added listings
+const memoryProperties: any[] = [];
+const memoryPayments: any[] = [];
 
 export class RealEstateService {
   private isMongoConnected(): boolean {
@@ -307,7 +169,8 @@ export class RealEstateService {
   }
 
   /**
-   * 4. GET PUBLIC APPROVED PROPERTIES
+   * 4. GET PUBLIC APPROVED & ACTIVE PROPERTIES
+   * Returns approved/active/paid properties feed with filters
    */
   async getProperties(params: {
     search?: string;
@@ -321,10 +184,17 @@ export class RealEstateService {
   }): Promise<{ properties: any[]; total: number }> {
     if (this.isMongoConnected()) {
       try {
-        const filter: any = { approvalStatus: 'approved' };
+        const filter: any = {
+          $or: [
+            { approvalStatus: 'approved' },
+            { approvalStatus: 'active' },
+            { isPaid: true, status: { $ne: 'rejected' } },
+          ],
+        };
         if (params.search) {
           const reg = new RegExp(params.search, 'i');
-          filter.$or = [{ title: reg }, { location: reg }, { city: reg }, { description: reg }];
+          filter.$and = filter.$and || [];
+          filter.$and.push({ $or: [{ title: reg }, { location: reg }, { city: reg }, { description: reg }] });
         }
         if (params.propertyType && params.propertyType !== 'All') {
           filter.propertyType = params.propertyType.toLowerCase();
@@ -352,36 +222,34 @@ export class RealEstateService {
           PropertyModel.countDocuments(filter),
         ]);
 
-        if (properties && properties.length > 0) {
-          return { properties, total };
-        }
-      } catch {
-        // Fallback to memory properties
+        return { properties: properties || [], total: total || 0 };
+      } catch (err: any) {
+        logger.warn({ err: err.message }, 'MongoDB getProperties query notice, checking memory fallback');
       }
     }
 
-    // In-memory filter
-    let list = memoryProperties.filter((p) => p.approvalStatus === 'approved');
+    // In-memory filter (only real user added & paid listings)
+    let list = memoryProperties.filter((p) => p.approvalStatus === 'approved' || p.approvalStatus === 'active' || p.isPaid);
 
     if (params.search) {
       const q = params.search.toLowerCase();
       list = list.filter(
         (p) =>
-          p.title.toLowerCase().includes(q) ||
-          p.location.toLowerCase().includes(q) ||
-          p.city.toLowerCase().includes(q) ||
+          p.title?.toLowerCase().includes(q) ||
+          p.location?.toLowerCase().includes(q) ||
+          p.city?.toLowerCase().includes(q) ||
           (p.description && p.description.toLowerCase().includes(q))
       );
     }
     if (params.propertyType && params.propertyType !== 'All') {
-      list = list.filter((p) => p.propertyType.toLowerCase() === params.propertyType!.toLowerCase());
+      list = list.filter((p) => p.propertyType?.toLowerCase() === params.propertyType!.toLowerCase());
     }
     if (params.listingType && params.listingType !== 'All') {
       const target = params.listingType.toLowerCase().includes('rent') ? 'rent' : 'sale';
       list = list.filter((p) => p.listingType === target);
     }
     if (params.city) {
-      list = list.filter((p) => p.city.toLowerCase().includes(params.city!.toLowerCase()));
+      list = list.filter((p) => p.city?.toLowerCase().includes(params.city!.toLowerCase()));
     }
     if (params.minPrice !== undefined) {
       list = list.filter((p) => p.price >= Number(params.minPrice));
@@ -402,7 +270,11 @@ export class RealEstateService {
         const prop = await PropertyModel.findOne({
           $or: [{ propertyId }, { _id: propertyId.match(/^[0-9a-fA-F]{24}$/) ? propertyId : undefined }],
         });
-        if (prop) return prop;
+        if (prop) {
+          prop.viewsCount = (prop.viewsCount || 0) + 1;
+          prop.save().catch(() => {});
+          return prop;
+        }
       } catch {}
     }
     const memProp = memoryProperties.find((p) => p.propertyId === propertyId || p._id === propertyId);
@@ -427,9 +299,15 @@ export class RealEstateService {
   }
 
   /**
+   * UPLOAD PROPERTY IMAGE TO CLOUDINARY
+   */
+  async uploadPropertyImage(dataUri: string): Promise<{ url: string; publicId: string }> {
+    return uploadImage(dataUri, 'properties');
+  }
+
+  /**
    * 7. CREATE PROPERTY DRAFT
-   * Captures server-side listing fee snapshot.
-   * If fee is 0 or disabled, automatically submits for review.
+   * Saves to MongoDB / memory with Cloudinary-backed images.
    */
   async createPropertyDraft(
     userId: string,
@@ -466,6 +344,27 @@ export class RealEstateService {
 
     const propertyId = `PR-${Date.now().toString().slice(-6)}`;
 
+    // Upload any base64 images or local image URIs to Cloudinary
+    let processedImages: string[] = [];
+    if (data.images && Array.isArray(data.images) && data.images.length > 0) {
+      for (const img of data.images) {
+        if (!img) continue;
+        if (img.startsWith('https://res.cloudinary.com')) {
+          processedImages.push(img);
+        } else if (img.startsWith('data:image') || img.startsWith('file:') || img.length > 500) {
+          try {
+            const uploadRes = await uploadImage(img, 'properties');
+            processedImages.push(uploadRes.url);
+          } catch (err: any) {
+            logger.warn({ err: err.message }, 'Failed to upload property image to Cloudinary during draft creation');
+            processedImages.push(img);
+          }
+        } else {
+          processedImages.push(img);
+        }
+      }
+    }
+
     const newProperty: any = {
       propertyId,
       _id: propertyId,
@@ -479,10 +378,7 @@ export class RealEstateService {
       address: data.address.trim(),
       city: data.city || 'Manjeri',
       state: data.state || 'Kerala',
-      images:
-        data.images && data.images.length > 0
-          ? data.images
-          : ['https://images.unsplash.com/photo-1600596542815-ffad4c1539a9?auto=format&fit=crop&w=800&q=80'],
+      images: processedImages,
       bedrooms: Number(data.bedrooms) || 0,
       bathrooms: Number(data.bathrooms) || 0,
       area: data.area,
@@ -497,8 +393,8 @@ export class RealEstateService {
 
       listingFeeAmount: feeAmount,
       isPaid: isFree,
-      status: isFree ? 'under_review' : 'pending_payment',
-      approvalStatus: 'pending',
+      status: isFree ? 'approved' : 'pending_payment',
+      approvalStatus: isFree ? 'approved' : 'pending',
       paidAt: isFree ? new Date() : undefined,
       createdAt: new Date(),
       viewsCount: 0,
@@ -557,9 +453,17 @@ export class RealEstateService {
     keyId: string;
     propertyId: string;
   }> {
-    const property = memoryProperties.find((p) => p.propertyId === propertyId && p.userId === userId);
+    let property: any = null;
+    if (this.isMongoConnected()) {
+      try {
+        property = await PropertyModel.findOne({ propertyId });
+      } catch {}
+    }
     if (!property) {
-      throw new Error(`Property ${propertyId} not found or does not belong to user`);
+      property = memoryProperties.find((p) => p.propertyId === propertyId);
+    }
+    if (!property) {
+      throw new Error(`Property ${propertyId} not found`);
     }
 
     if (property.isPaid) {
@@ -571,25 +475,17 @@ export class RealEstateService {
     // Handle free listing policy
     if (activeAmount === 0) {
       property.isPaid = true;
-      property.status = 'under_review';
+      property.status = 'approved';
+      property.approvalStatus = 'approved';
       property.listingFeeAmount = 0;
       property.paidAt = new Date();
 
-      memoryPayments.unshift({
-        paymentId: `PLP-FREE-${Date.now().toString().slice(-6)}`,
-        userId,
-        userName,
-        userPhone,
-        propertyId: property.propertyId,
-        propertyTitle: property.title,
-        amount: 0,
-        amountInPaise: 0,
-        currency: 'INR',
-        feeSnapshot: 0,
-        paymentProvider: 'free',
-        status: 'paid',
-        paidAt: new Date(),
-      });
+      if (this.isMongoConnected()) {
+        await PropertyModel.findOneAndUpdate(
+          { propertyId },
+          { isPaid: true, status: 'approved', approvalStatus: 'approved', paidAt: new Date() }
+        ).catch(() => {});
+      }
 
       return {
         isFree: true,
@@ -680,7 +576,7 @@ export class RealEstateService {
   /**
    * 9. VERIFY RAZORPAY LISTING PAYMENT
    * Cryptographically verifies HMAC signature and amount against server snapshot.
-   * Transitions property to 'under_review' for Admin Approval.
+   * Activates property so it is immediately visible in real estate feed!
    */
   async verifyListingPayment(
     userId: string,
@@ -693,9 +589,17 @@ export class RealEstateService {
   ): Promise<{ success: boolean; property: any; paymentId: string }> {
     const { propertyId, razorpayOrderId, razorpayPaymentId, razorpaySignature } = payload;
 
-    const property = memoryProperties.find((p) => p.propertyId === propertyId && p.userId === userId);
+    let property: any = null;
+    if (this.isMongoConnected()) {
+      try {
+        property = await PropertyModel.findOne({ propertyId });
+      } catch {}
+    }
     if (!property) {
-      throw new Error(`Property ${propertyId} not found for this user`);
+      property = memoryProperties.find((p) => p.propertyId === propertyId);
+    }
+    if (!property) {
+      throw new Error(`Property ${propertyId} not found`);
     }
 
     if (property.isPaid) {
@@ -706,12 +610,14 @@ export class RealEstateService {
       };
     }
 
-    const payment = memoryPayments.find(
+    let payment = memoryPayments.find(
       (p) => p.propertyId === propertyId && p.razorpayOrderId === razorpayOrderId
     );
 
-    if (!payment) {
-      throw new Error(`Payment order record not found for property ${propertyId}`);
+    if (!payment && this.isMongoConnected()) {
+      try {
+        payment = await PropertyListingPaymentModel.findOne({ propertyId, razorpayOrderId });
+      } catch {}
     }
 
     const isValidSignature = verifyRazorpaySignature(
@@ -725,21 +631,22 @@ export class RealEstateService {
       (razorpaySignature === 'simulated_valid_signature' || razorpaySignature === 'valid_test_sig');
 
     if (!isValidSignature && !isMockAccepted) {
-      payment.status = 'failed';
-      payment.failureReason = 'Invalid cryptographic HMAC-SHA256 signature';
-      throw new Error('Payment verification failed: Invalid Razorpay signature');
+      if (payment) payment.status = 'failed';
+      throw new Error('Payment verification failed: Invalid Razorpay cryptographic signature');
     }
 
     const paidAt = new Date();
-    payment.status = 'paid';
-    payment.razorpayPaymentId = razorpayPaymentId;
-    payment.razorpaySignature = razorpaySignature;
-    payment.paidAt = paidAt;
+    if (payment) {
+      payment.status = 'paid';
+      payment.razorpayPaymentId = razorpayPaymentId;
+      payment.razorpaySignature = razorpaySignature;
+      payment.paidAt = paidAt;
+    }
 
     property.isPaid = true;
-    property.status = 'under_review';
-    property.approvalStatus = 'pending';
-    property.paymentId = payment.paymentId;
+    property.status = 'approved';
+    property.approvalStatus = 'approved';
+    property.paymentId = payment?.paymentId || `PLP-${Date.now().toString().slice(-6)}`;
     property.paidAt = paidAt;
 
     if (this.isMongoConnected()) {
@@ -751,26 +658,76 @@ export class RealEstateService {
             razorpayPaymentId,
             razorpaySignature,
             paidAt,
-          }
+          },
+          { upsert: true }
         );
         await PropertyModel.findOneAndUpdate(
           { propertyId },
           {
             isPaid: true,
-            status: 'under_review',
-            approvalStatus: 'pending',
-            paymentId: payment.paymentId,
+            status: 'approved',
+            approvalStatus: 'approved',
+            paymentId: property.paymentId,
             paidAt,
           }
         );
-      } catch {}
+      } catch (err: any) {
+        logger.warn({ err: err.message }, 'Failed to persist verified property payment in MongoDB');
+      }
     }
 
     return {
       success: true,
       property,
-      paymentId: payment.paymentId,
+      paymentId: property.paymentId,
     };
+  }
+
+  /**
+   * 10. MARK PROPERTY PAID FROM RAZORPAY WEBHOOK
+   */
+  async markPropertyPaidFromWebhook(params: {
+    propertyId: string;
+    razorpayOrderId?: string;
+    razorpayPaymentId?: string;
+  }): Promise<void> {
+    const { propertyId, razorpayOrderId, razorpayPaymentId } = params;
+    logger.info({ propertyId, razorpayOrderId, razorpayPaymentId }, 'Marking property paid from Razorpay webhook');
+
+    const paidAt = new Date();
+    const memProp = memoryProperties.find((p) => p.propertyId === propertyId);
+    if (memProp) {
+      memProp.isPaid = true;
+      memProp.status = 'approved';
+      memProp.approvalStatus = 'approved';
+      memProp.paidAt = paidAt;
+    }
+
+    if (this.isMongoConnected()) {
+      try {
+        await PropertyModel.findOneAndUpdate(
+          { propertyId },
+          {
+            isPaid: true,
+            status: 'approved',
+            approvalStatus: 'approved',
+            paidAt,
+          }
+        );
+        if (razorpayOrderId) {
+          await PropertyListingPaymentModel.findOneAndUpdate(
+            { propertyId, razorpayOrderId },
+            {
+              status: 'paid',
+              razorpayPaymentId,
+              paidAt,
+            }
+          );
+        }
+      } catch (err: any) {
+        logger.error({ err: err.message, propertyId }, 'Error in markPropertyPaidFromWebhook');
+      }
+    }
   }
 
   /**

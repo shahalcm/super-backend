@@ -496,15 +496,12 @@ export class WalletService {
       throw new Error('Missing required payment verification parameters');
     }
 
-    // 1. Signature Verification
-    // In production or when realistic signatures are provided, verify cryptographic HMAC-SHA256
-    const isSimulated = orderId.startsWith('order_sim_') || paymentId.startsWith('pay_sim_');
-    if (!isSimulated && process.env.NODE_ENV === 'production') {
-      const isValid = verifyRazorpaySignature(orderId, paymentId, signature);
-      if (!isValid) {
-        throw new Error('Invalid Razorpay payment signature. Payment verification failed.');
-      }
+    // 1. Mandatory Cryptographic HMAC-SHA256 Signature Verification
+    const isValid = verifyRazorpaySignature(orderId, paymentId, signature, env.RAZORPAY_KEY_SECRET);
+    if (!isValid) {
+      throw new Error('Invalid Razorpay payment signature. Payment verification failed.');
     }
+
 
     // 2. Idempotency Check: Prevent duplicate crediting
     if (mongoose.connection.readyState === 1) {
@@ -1182,6 +1179,124 @@ export class WalletService {
         delivery: { rechargePaid: 0, promoIssued: 0 },
       },
     };
+  }
+
+  /**
+   * Credit wallet directly from verified Razorpay webhook event
+   */
+  async creditFromWebhook(params: {
+    userId: string;
+    app: WalletApp;
+    accountType: WalletAccountType;
+    orderId: string;
+    paymentId: string;
+    offerId: string;
+  }) {
+    const { userId, app, accountType, orderId, paymentId, offerId } = params;
+
+    // Check idempotency
+    if (mongoose.connection.readyState === 1) {
+      const existingTx = await WalletTransactionModel.findOne({
+        gatewayPaymentId: paymentId,
+        status: 'completed',
+      });
+      if (existingTx) {
+        logger.info({ paymentId }, 'Webhook wallet credit: Payment already credited');
+        return this.getOrCreateWallet(userId, app, accountType);
+      }
+    }
+
+    let offer: any = null;
+    if (mongoose.connection.readyState === 1) {
+      offer = await RechargeOfferModel.findOne({ offerId }).lean();
+    }
+    if (!offer) {
+      offer = inMemoryOffers.find((o) => o.offerId === offerId);
+    }
+    if (!offer) {
+      logger.warn({ offerId }, 'Webhook wallet credit: Offer not found, skipping');
+      return null;
+    }
+
+    const { rechargeAmount, promotionalBonus } = offer;
+    const baseTxId = `tx_rch_${uuidv4().replace(/-/g, '').slice(0, 16)}`;
+    const now = new Date();
+
+    if (mongoose.connection.readyState === 1) {
+      const walletDoc = await WalletModel.findOne({ userId, app, accountType });
+      if (!walletDoc) {
+        await this.getOrCreateWallet(userId, app, accountType);
+      }
+
+      const current = await WalletModel.findOne({ userId, app, accountType });
+      if (current) {
+        const prevCash = current.cashBalance;
+        const prevPromo = current.promotionalBalance;
+        const newCash = prevCash + rechargeAmount;
+        const newPromo = prevPromo + promotionalBonus;
+
+        current.cashBalance = newCash;
+        current.promotionalBalance = newPromo;
+        current.totalRecharged += rechargeAmount;
+        current.totalBonusReceived += promotionalBonus;
+        current.lastRechargedAt = now;
+        await current.save();
+
+        await WalletTransactionModel.create([
+          {
+            transactionId: `${baseTxId}_cash`,
+            walletId: current.walletId,
+            userId,
+            app,
+            accountType,
+            transactionType: 'recharge_cash',
+            amount: rechargeAmount,
+            currency: 'INR',
+            cashBalanceChange: rechargeAmount,
+            promoBalanceChange: 0,
+            previousCashBalance: prevCash,
+            newCashBalance: newCash,
+            previousPromoBalance: prevPromo,
+            newPromoBalance: prevPromo,
+            gateway: 'razorpay',
+            gatewayOrderId: orderId,
+            gatewayPaymentId: paymentId,
+            rechargeOfferId: offerId,
+            status: 'completed',
+            title: `Recharge Cash Credit (Webhook)`,
+            subtitle: `Verified via Razorpay Webhook`,
+          },
+          {
+            transactionId: `${baseTxId}_promo`,
+            walletId: current.walletId,
+            userId,
+            app,
+            accountType,
+            transactionType: 'recharge_promo',
+            amount: promotionalBonus,
+            currency: 'INR',
+            cashBalanceChange: 0,
+            promoBalanceChange: promotionalBonus,
+            previousCashBalance: newCash,
+            newCashBalance: newCash,
+            previousPromoBalance: prevPromo,
+            newPromoBalance: newPromo,
+            gateway: 'system',
+            gatewayOrderId: orderId,
+            gatewayPaymentId: paymentId,
+            rechargeOfferId: offerId,
+            status: 'completed',
+            title: `Promotional Bonus (Webhook)`,
+            subtitle: `${offer.badgeText || '10X Bonus'}`,
+          },
+        ]);
+
+        logger.info({ userId, paymentId, newCash, newPromo }, 'Wallet successfully credited via Razorpay Webhook');
+        return current;
+      }
+    }
+
+    return null;
   }
 }
 

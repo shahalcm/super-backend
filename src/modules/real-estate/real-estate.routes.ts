@@ -79,6 +79,24 @@ router.get('/properties/:id', async (req: Request, res: Response) => {
 });
 
 /**
+ * POST /api/v1/real-estate/upload-image
+ * Uploads a property image to Cloudinary (folder: properties)
+ */
+router.post('/upload-image', optionalAuth, async (req: Request, res: Response) => {
+  try {
+    const { image } = req.body;
+    if (!image) {
+      return sendError(res, 'image payload (base64 dataUri or URL) is required', 400);
+    }
+    const result = await realEstateService.uploadPropertyImage(image);
+    return sendSuccess(res, result, 'Image uploaded to Cloudinary successfully', 201);
+  } catch (err: any) {
+    logger.error({ err: err.message }, 'Failed to upload property image to Cloudinary');
+    return sendError(res, err.message, 500);
+  }
+});
+
+/**
  * POST /api/v1/real-estate/properties
  * Submit a property draft. Server attaches active listing fee snapshot.
  */

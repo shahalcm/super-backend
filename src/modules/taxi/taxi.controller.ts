@@ -92,6 +92,26 @@ export class TaxiController {
       return sendError(res, error.message, 400);
     }
   }
+
+  async createRidePayment(req: Request, res: Response) {
+    try {
+      const { id } = req.params;
+      const result = await taxiService.createRidePaymentOrder(req.user!.userId, id);
+      return sendSuccess(res, result, 'Razorpay payment order created for ride', 201);
+    } catch (error: any) {
+      return sendError(res, error.message, 400);
+    }
+  }
+
+  async verifyRidePayment(req: Request, res: Response) {
+    try {
+      const { id } = req.params;
+      const result = await taxiService.verifyRidePayment(req.user!.userId, id, req.body);
+      return sendSuccess(res, result, 'Ride payment verified and captured');
+    } catch (error: any) {
+      return sendError(res, error.message, 400);
+    }
+  }
 }
 
 export const taxiController = new TaxiController();

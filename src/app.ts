@@ -136,6 +136,9 @@ app.get('/api/stores/nearby', (req, res) => contentController.getNearbyStores(re
 app.get('/api/v1/restaurants/nearby', (req, res) => contentController.getNearbyRestaurants(req, res));
 app.get('/api/restaurants/nearby', (req, res) => contentController.getNearbyRestaurants(req, res));
 app.use('/api/v1/payments', paymentRoutes);
+app.use('/api/payments', paymentRoutes);
+app.use('/payments', paymentRoutes);
+
 app.use('/api/v1/wallet', walletRoutes);
 app.use('/api/wallet', walletRoutes);
 app.use('/wallet', walletRoutes);

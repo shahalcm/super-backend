@@ -333,6 +333,24 @@ export class AdminService {
   }
 
   async updateRefund(refundId: string, data: any) {
+    const refund = await RefundModel.findOne({ refundId });
+    if (!refund) throw new Error('Refund record not found');
+
+    if (data.status === 'approved' && refund.status !== 'processed') {
+      const { paymentsService } = await import('../payments/payments.service.js');
+      const payment = await PaymentModel.findOne({
+        $or: [{ transactionId: refund.transactionId }, { orderId: refund.orderId }],
+      });
+      if (payment?.gatewayPaymentId) {
+        await paymentsService.processRefund({
+          paymentId: payment.gatewayPaymentId,
+          amount: refund.amount,
+          reason: refund.reason,
+          initiatedBy: data.approvedBy || 'admin',
+        });
+        return RefundModel.findOne({ refundId });
+      }
+    }
     return RefundModel.findOneAndUpdate({ refundId }, { $set: data }, { new: true });
   }
 
